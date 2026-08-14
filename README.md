@@ -21,7 +21,10 @@ English | [中文](README.zh.md)
 
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli) v1.0.12+ installed and authenticated
 - Node.js 18+
-- [`jq`](https://jqlang.github.io/jq/download/) — required for hook scripts that track tool and agent activity
+
+That's the whole list. `jq` used to be required as well, for the hook scripts
+that track tool and agent activity; those hooks are now plain Node, so there is
+nothing to install beyond Node itself.
 
 ### Quick Start
 
@@ -267,7 +270,7 @@ Copilot CLI session
 ```
 
 - **statusLine** receives session JSON on stdin including: model (id, display_name with effort/multiplier), context_window (live `current_context_*` and `displayed_context_limit`, plus cumulative sizes/percentages/token counts, cache stats, last call, reasoning tokens), cost (duration, API time, lines added/removed), `ai_used` (credits under Copilot's usage-based billing — prefer `formatted`, raw value in `total_nano_aiu`; falls back to legacy `cost.total_premium_requests`), session metadata (name, id, cwd, transcript_path), Copilot CLI version, and `remote.connected` for remote-control sessions
-- **Hooks** fire on `sessionStart`, `userPromptSubmitted`, `preToolUse`, `postToolUse`, and `sessionEnd`, writing to `~/.copilot/hud-state.json`
+- **Hooks** fire on `sessionStart`, `userPromptSubmitted`, `preToolUse`, `postToolUse`, and `sessionEnd`, writing to `~/.copilot/hud-state.json`. The `.sh` and `.ps1` hooks are thin wrappers around one shared Node implementation in `scripts/hud-hook.mjs`, so both platforms behave identically
 - The HUD script merges both data sources and renders colorized output
 
 ---

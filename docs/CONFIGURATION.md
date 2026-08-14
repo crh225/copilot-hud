@@ -336,7 +336,10 @@ Ctx ████░░░░░░ 70.0k/200.0k 35% │ Credits 1.42 │ in:1.5M
 
 ## One-liner `jq` Commands
 
-Edit specific values without opening a text editor:
+Edit specific values without opening a text editor. These are a convenience for
+people who already have `jq` — the HUD itself no longer needs it, so if you
+don't have it installed, edit the JSON by hand or use `/copilot-hud:configure`
+instead.
 
 ```bash
 CONFIG="$HOME/.copilot/plugins/copilot-hud/config.json"

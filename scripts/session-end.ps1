@@ -1,8 +1,10 @@
 # Copilot HUD: session-end hook (PowerShell)
 # Called when a Copilot CLI session ends
-
-$ErrorActionPreference = 'Stop'
-
+#
+# A thin wrapper. The implementation is in hud-hook.mjs, shared with the bash
+# hooks so the two platforms can't drift apart — see that file for the payload
+# shapes, the state format, and the locking rules.
+#
 # NOTE: do not gate on [Console]::IsOutputRedirected here. Copilot forks hooks
 # with piped stdio so it can capture their output, which means stdout is always
 # redirected even in a fully interactive session — the test can never be false,
@@ -10,36 +12,20 @@ $ErrorActionPreference = 'Stop'
 # prevented in render.ts, which only draws state whose sessionId matches the
 # session currently being rendered.
 
-function Write-StateFile($obj, $path) {
-  $json = $obj | ConvertTo-Json -Depth 20
-  $tmp = "$path.tmp"
-  $enc = New-Object System.Text.UTF8Encoding($false)
-  [System.IO.File]::WriteAllText($tmp, $json, $enc)
-  Move-Item -LiteralPath $tmp -Destination $path -Force
-}
+# node also renders the statusline, so if it's missing there is no HUD to update.
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) { exit 0 }
 
-$copilotHome = if ($env:COPILOT_HOME) { $env:COPILOT_HOME } else { Join-Path $HOME '.copilot' }
-$stateFile = Join-Path $copilotHome 'hud-state.json'
-$lockDir = "$stateFile.lock"
+$payload = [Console]::In.ReadToEnd()
 
-if (-not (Test-Path -LiteralPath $stateFile)) { exit 0 }
-
-# Acquire lock (creating a directory is atomic)
-$retries = 0
-while ($true) {
-  try { New-Item -ItemType Directory -Path $lockDir -ErrorAction Stop | Out-Null; break }
-  catch {
-    Start-Sleep -Milliseconds 50
-    $retries++
-    if ($retries -ge 40) { Remove-Item -Recurse -Force $lockDir -ErrorAction SilentlyContinue; break }
-  }
-}
+# Windows PowerShell encodes anything piped to a native command using
+# $OutputEncoding, which defaults to ASCII — that would mangle any non-ASCII
+# text in the payload (a prompt, a path) before node ever sees it.
+$OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 
 try {
-  $state = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
-  $state.sessionActive = $false
-  Write-StateFile $state $stateFile
+  $payload | & node (Join-Path $PSScriptRoot 'hud-hook.mjs') 'session-end'
+} catch {
+  # A hook must never take the session down with it.
 }
-finally {
-  Remove-Item -Recurse -Force $lockDir -ErrorAction SilentlyContinue
-}
+
+exit 0

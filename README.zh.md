@@ -23,7 +23,8 @@
 
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli) v1.0.12+，已安装并完成身份验证
 - Node.js 18+
-- [`jq`](https://jqlang.github.io/jq/download/) — hook 脚本用于追踪工具与代理活动，需要依赖此工具
+
+就这些。以前还需要 `jq` 来支持追踪工具与代理活动的 hook 脚本；这些 hook 现在改用纯 Node 实现，因此除 Node 之外无需再安装任何东西。
 
 ### 快速开始
 
@@ -248,7 +249,7 @@ Copilot CLI 会话
 ```
 
 - **statusLine** 通过 stdin 接收会话数据（model、context window、cost、`ai_used` —— credits 优先读顶层 `ai_used.formatted`，原始值在 `ai_used.total_nano_aiu`；老版本回退到 `cost.total_premium_requests`）
-- **Hooks** 在 `sessionStart`、`userPromptSubmitted`、`preToolUse`、`postToolUse`、`sessionEnd` 时触发，写入 `~/.copilot/hud-state.json`
+- **Hooks** 在 `sessionStart`、`userPromptSubmitted`、`preToolUse`、`postToolUse`、`sessionEnd` 时触发，写入 `~/.copilot/hud-state.json`。`.sh` 与 `.ps1` hook 都只是薄封装，实际实现是共享的 Node 脚本 `scripts/hud-hook.mjs`，因此两个平台行为完全一致
 - HUD 脚本合并两个数据源，渲染带颜色的输出
 
 ---

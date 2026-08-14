@@ -331,7 +331,7 @@ Ctx ████░░░░░░ 70.0k/200.0k 35% │ Credits 1.42 │ in:1.5M
 
 ## jq 一行命令快速修改
 
-不想打开编辑器？用 `jq` 直接在命令行改：
+不想打开编辑器？用 `jq` 直接在命令行改。这些命令只是为已经安装了 `jq` 的人提供的便利——HUD 本身已不再需要 `jq`，如果你没有安装，可以手动编辑 JSON，或使用 `/copilot-hud:configure`。
 
 ```bash
 CONFIG="$HOME/.copilot/plugins/copilot-hud/config.json"

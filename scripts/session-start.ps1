@@ -1,8 +1,10 @@
 # Copilot HUD: session-start hook (PowerShell)
 # Called when a new Copilot CLI session begins
-
-$ErrorActionPreference = 'Stop'
-
+#
+# A thin wrapper. The implementation is in hud-hook.mjs, shared with the bash
+# hooks so the two platforms can't drift apart — see that file for the payload
+# shapes, the state format, and the locking rules.
+#
 # NOTE: do not gate on [Console]::IsOutputRedirected here. Copilot forks hooks
 # with piped stdio so it can capture their output, which means stdout is always
 # redirected even in a fully interactive session — the test can never be false,
@@ -10,49 +12,20 @@ $ErrorActionPreference = 'Stop'
 # prevented in render.ts, which only draws state whose sessionId matches the
 # session currently being rendered.
 
-function Write-StateFile($obj, $path) {
-  $json = $obj | ConvertTo-Json -Depth 20
-  $tmp = "$path.tmp"
-  $enc = New-Object System.Text.UTF8Encoding($false)
-  [System.IO.File]::WriteAllText($tmp, $json, $enc)
-  Move-Item -LiteralPath $tmp -Destination $path -Force
+# node also renders the statusline, so if it's missing there is no HUD to update.
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) { exit 0 }
+
+$payload = [Console]::In.ReadToEnd()
+
+# Windows PowerShell encodes anything piped to a native command using
+# $OutputEncoding, which defaults to ASCII — that would mangle any non-ASCII
+# text in the payload (a prompt, a path) before node ever sees it.
+$OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+
+try {
+  $payload | & node (Join-Path $PSScriptRoot 'hud-hook.mjs') 'session-start'
+} catch {
+  # A hook must never take the session down with it.
 }
 
-$raw = [Console]::In.ReadToEnd()
-try { $data = $raw | ConvertFrom-Json } catch { $data = $null }
-
-$cwd = if ($data -and $data.cwd) { [string]$data.cwd } else { '' }
-$ts  = if ($data -and $null -ne $data.timestamp) { $data.timestamp } else { 0 }
-$sid = if ($data -and $data.sessionId) { [string]$data.sessionId } else { '' }
-
-$copilotHome = if ($env:COPILOT_HOME) { $env:COPILOT_HOME } else { Join-Path $HOME '.copilot' }
-$stateFile = Join-Path $copilotHome 'hud-state.json'
-
-# Preserve agents if resuming the same session
-$prevAgents = @()
-if (Test-Path -LiteralPath $stateFile) {
-  try {
-    $prev = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
-    if ($prev.sessionId -and $sid -and ($prev.sessionId -eq $sid) -and $prev.agents) {
-      $prevAgents = @($prev.agents)
-    }
-  } catch {}
-}
-
-$state = [ordered]@{
-  sessionId      = $sid
-  sessionStart   = $ts
-  cwd            = $cwd
-  lastPrompt     = $null
-  lastPromptTime = $null
-  recentTools    = @()
-  agents         = $prevAgents
-  sessionActive  = $true
-}
-
-$dir = Split-Path -Parent $stateFile
-if (-not (Test-Path -LiteralPath $dir)) {
-  New-Item -ItemType Directory -Path $dir -Force | Out-Null
-}
-
-Write-StateFile $state $stateFile
+exit 0

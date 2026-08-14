@@ -1,7 +1,11 @@
 #!/bin/bash
 # Copilot HUD: session-end hook
 # Called when a Copilot CLI session ends
-
+#
+# A thin wrapper. The implementation is in hud-hook.mjs, shared with the
+# PowerShell hooks so the two platforms can't drift apart — see that file for
+# the payload shapes, the state format, and the locking rules.
+#
 # NOTE: do not gate on `[ -t 1 ]` here. Copilot forks hooks with piped stdio
 # so it can capture their output, which means stdin, stdout and stderr are ALL
 # pipes even in a fully interactive session — the test can never be true, and
@@ -9,25 +13,7 @@
 # prevented in render.ts, which only draws state whose sessionId matches the
 # session currently being rendered.
 
-COPILOT_HOME="${COPILOT_HOME:-$HOME/.copilot}"
-STATE_FILE="$COPILOT_HOME/hud-state.json"
-LOCK_DIR="$STATE_FILE.lock"
+# node also renders the statusline, so if it's missing there is no HUD to update.
+command -v node >/dev/null 2>&1 || exit 0
 
-if [ ! -f "$STATE_FILE" ]; then
-  exit 0
-fi
-
-# Acquire lock (mkdir is atomic)
-RETRIES=0
-while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-  sleep 0.05
-  RETRIES=$((RETRIES + 1))
-  if [ $RETRIES -ge 40 ]; then
-    rmdir "$LOCK_DIR" 2>/dev/null
-    break
-  fi
-done
-trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
-
-CURRENT=$(cat "$STATE_FILE")
-echo "$CURRENT" | jq '.sessionActive = false' > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+exec node "$(dirname "$0")/hud-hook.mjs" session-end

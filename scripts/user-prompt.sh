@@ -1,7 +1,11 @@
 #!/bin/bash
 # Copilot HUD: user-prompt hook
 # Called when the user submits a prompt
-
+#
+# A thin wrapper. The implementation is in hud-hook.mjs, shared with the
+# PowerShell hooks so the two platforms can't drift apart — see that file for
+# the payload shapes, the state format, and the locking rules.
+#
 # NOTE: do not gate on `[ -t 1 ]` here. Copilot forks hooks with piped stdio
 # so it can capture their output, which means stdin, stdout and stderr are ALL
 # pipes even in a fully interactive session — the test can never be true, and
@@ -9,34 +13,7 @@
 # prevented in render.ts, which only draws state whose sessionId matches the
 # session currently being rendered.
 
-INPUT=$(cat)
-PROMPT=$(echo "$INPUT" | jq -r '.prompt // empty')
-TIMESTAMP=$(echo "$INPUT" | jq -r '.timestamp // 0')
+# node also renders the statusline, so if it's missing there is no HUD to update.
+command -v node >/dev/null 2>&1 || exit 0
 
-COPILOT_HOME="${COPILOT_HOME:-$HOME/.copilot}"
-STATE_FILE="$COPILOT_HOME/hud-state.json"
-LOCK_DIR="$STATE_FILE.lock"
-
-if [ ! -f "$STATE_FILE" ]; then
-  exit 0
-fi
-
-# Acquire lock (mkdir is atomic)
-RETRIES=0
-while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-  sleep 0.05
-  RETRIES=$((RETRIES + 1))
-  if [ $RETRIES -ge 40 ]; then
-    rmdir "$LOCK_DIR" 2>/dev/null
-    break
-  fi
-done
-trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
-
-# Update prompt info in state, keep other fields
-CURRENT=$(cat "$STATE_FILE")
-echo "$CURRENT" | jq \
-  --arg prompt "$PROMPT" \
-  --argjson ts "$TIMESTAMP" \
-  '.lastPrompt = $prompt | .lastPromptTime = $ts' \
-  > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+exec node "$(dirname "$0")/hud-hook.mjs" user-prompt

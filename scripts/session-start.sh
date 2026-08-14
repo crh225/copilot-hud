@@ -1,7 +1,11 @@
 #!/bin/bash
 # Copilot HUD: session-start hook
 # Called when a new Copilot CLI session begins
-
+#
+# A thin wrapper. The implementation is in hud-hook.mjs, shared with the
+# PowerShell hooks so the two platforms can't drift apart — see that file for
+# the payload shapes, the state format, and the locking rules.
+#
 # NOTE: do not gate on `[ -t 1 ]` here. Copilot forks hooks with piped stdio
 # so it can capture their output, which means stdin, stdout and stderr are ALL
 # pipes even in a fully interactive session — the test can never be true, and
@@ -9,41 +13,7 @@
 # prevented in render.ts, which only draws state whose sessionId matches the
 # session currently being rendered.
 
-if ! command -v jq &>/dev/null; then
-  echo "copilot-hud: jq is required but not installed. See https://jqlang.github.io/jq/download/" >&2
-  exit 1
-fi
+# node also renders the statusline, so if it's missing there is no HUD to update.
+command -v node >/dev/null 2>&1 || exit 0
 
-INPUT=$(cat)
-CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
-TIMESTAMP=$(echo "$INPUT" | jq -r '.timestamp // 0')
-SESSION_ID=$(echo "$INPUT" | jq -r '.sessionId // empty')
-
-COPILOT_HOME="${COPILOT_HOME:-$HOME/.copilot}"
-STATE_FILE="$COPILOT_HOME/hud-state.json"
-
-# Preserve agents if resuming the same session
-PREV_AGENTS="[]"
-if [ -f "$STATE_FILE" ]; then
-  PREV_SID=$(cat "$STATE_FILE" | jq -r '.sessionId // empty')
-  if [ "$PREV_SID" = "$SESSION_ID" ] && [ -n "$SESSION_ID" ]; then
-    PREV_AGENTS=$(cat "$STATE_FILE" | jq -c '.agents // []')
-  fi
-fi
-
-# Write initial session state
-jq -n \
-  --arg cwd "$CWD" \
-  --arg sid "$SESSION_ID" \
-  --argjson ts "$TIMESTAMP" \
-  --argjson agents "$PREV_AGENTS" \
-  '{
-    sessionId: $sid,
-    sessionStart: $ts,
-    cwd: $cwd,
-    lastPrompt: null,
-    lastPromptTime: null,
-    recentTools: [],
-    agents: $agents,
-    sessionActive: true
-  }' > "$STATE_FILE"
+exec node "$(dirname "$0")/hud-hook.mjs" session-start
