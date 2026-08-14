@@ -187,6 +187,41 @@ When a remote controller is attached to your Copilot session (via `--remote` / `
 
 Toggle with `display.showRemote` (default `true`). The badge only renders while a remote is actually connected.
 
+### Prompt Preview
+
+Shows the prompt currently being worked on, with the time since you submitted it:
+
+```
+❯ fix the auth redirect loop when the session token expires mid-request (42s)
+```
+
+During a turn the age reads as how long Copilot has been working; once the turn
+finishes it reads as how long the session has been idle. Enable with
+`display.showPromptPreview` (default `false`). Multi-line prompts are collapsed
+to a single line, and the age is dropped if the timestamp is missing or older
+than a day — a stale state file shouldn't produce a nonsense clock.
+
+### Narrow Terminals
+
+Every HUD line is fitted to the terminal width instead of wrapping. As the
+terminal narrows, the least important segments drop out first — session name,
+then lines changed, then duration — while the model badge and the context bar
+are always kept:
+
+```
+120 cols  [opus-4.6 3x·high] │ ◉ remote │ my-project │ git:(main*) │ Fixing auth │ ⏱ 5m │ +42/-3
+ 70 cols  [opus-4.6 3x·high] │ ◉ remote │ my-project │ git:(main*) │ ⏱ 5m │ +42/-3
+ 40 cols  [opus-4.6 3x·high] │ ◉ remote
+```
+
+Anything still too wide is truncated with `…` rather than wrapped. Width is
+detected from the terminal itself — the statusline runs with its output piped,
+so the HUD asks the controlling terminal directly. If the width genuinely can't
+be determined, nothing is truncated and you get the old behavior.
+
+Turn it off with `display.fitWidth: false`, or pin a fixed budget with
+`display.maxWidth` (useful in a split pane, or if detection fails).
+
 ### Live Tool Activity
 See what Copilot is doing in real time. When Copilot reads files, runs commands, or edits code, the tools line updates to show each tool's status. Completed tools show a checkmark, running tools show a spinner, and failed tools show an X.
 
@@ -270,7 +305,9 @@ Edit `~/.copilot/plugins/copilot-hud/config.json`:
     "showRemote": true,
     "showQuota": true,
     "showQuotaCounts": true,
-    "showQuotaReset": true
+    "showQuotaReset": true,
+    "fitWidth": true,
+    "maxWidth": 0
   },
   "colors": {
     "rainbowPathBg": "189"
@@ -301,12 +338,14 @@ Or run `/copilot-hud:configure` inside a Copilot session for guided setup.
 | `display.showEffort` | `true` | Show effort level and multiplier in model badge |
 | `display.showLastCall` | `false` | Show last API call token counts |
 | `display.showCacheBreakdown` | `false` | Show separate cache read/write counts |
-| `display.showPromptPreview` | `false` | Show last user prompt preview |
+| `display.showPromptPreview` | `false` | Show the last user prompt and how long ago it was submitted |
 | `display.rainbowPath` | `false` | Render project path as per-character rainbow gradient (`false` = use `colors.project`) |
 | `display.showRemote` | `true` | Show the `◉ remote` badge when a remote controller is attached to the session |
 | `display.showQuota` | `true` | Show the monthly entitlement bar (requires the session extension) |
 | `display.showQuotaCounts` | `true` | Include `4785/7500` counts alongside the quota percentage |
 | `display.showQuotaReset` | `true` | Include days remaining until the entitlement resets |
+| `display.fitWidth` | `true` | Fit every line to the terminal width, dropping low-priority segments instead of wrapping |
+| `display.maxWidth` | `0` | Column budget for `fitWidth`. `0` auto-detects; a positive number pins it |
 | `colors.rainbowPathBg` | `"189"` | Background color for rainbow path. `"none"` disables background; otherwise a 256-color index or named color |
 
 ### Colors

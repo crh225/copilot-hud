@@ -2,6 +2,7 @@ import { readState, readQuota } from './state.js';
 import { getGitStatus } from './git.js';
 import { loadConfig } from './config.js';
 import { render } from './render.js';
+import { detectWidth } from './width.js';
 import type { RenderContext, SessionData } from './types.js';
 import { fileURLToPath } from 'node:url';
 import { realpathSync } from 'node:fs';
@@ -36,6 +37,7 @@ export async function main(): Promise<void> {
       config,
       now: Date.now(),
       quota: config.display.showQuota ? readQuota() : null,
+      width: config.display.fitWidth ? detectWidth(config.display.maxWidth) : undefined,
     };
 
     render(ctx);

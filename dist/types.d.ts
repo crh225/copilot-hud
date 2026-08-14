@@ -122,4 +122,10 @@ export interface RenderContext {
     config: HudConfig;
     now: number;
     quota?: QuotaState | null;
+    /**
+     * Column budget for every rendered line. Undefined means "don't fit" — either
+     * the user disabled it, or the terminal width could not be determined, in
+     * which case drawing everything and letting the terminal wrap beats guessing.
+     */
+    width?: number;
 }

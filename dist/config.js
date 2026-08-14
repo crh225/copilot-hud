@@ -31,6 +31,8 @@ const DEFAULTS = {
         showQuota: true,
         showQuotaCounts: true,
         showQuotaReset: true,
+        fitWidth: true,
+        maxWidth: 0,
     },
     colors: {
         project: 'yellow',

@@ -177,6 +177,30 @@ JSON 载荷中不包含任何配额字段，磁盘上的事件日志同样没有
 [Opus 4.6 3x·high] │ /Users/sky/Github/my-project │ git:(main* ↑2) │ Creating README │ ⏱ 5m │ +42/-3
 ```
 
+### 输入预览
+
+显示当前正在处理的输入，以及自提交以来经过的时间：
+
+```
+❯ fix the auth redirect loop when the session token expires mid-request (42s)
+```
+
+在一轮对话进行中，这个时间表示 Copilot 已经工作了多久；对话结束后，则表示会话空闲了多久。通过 `display.showPromptPreview` 启用（默认 `false`）。多行输入会合并为一行；当时间戳缺失或超过一天时会省略时长——过期的状态文件不应显示出无意义的计时。
+
+### 窄终端适配
+
+每一行都会按终端宽度裁剪，而不是换行。终端越窄，越不重要的片段越先被丢弃——先是会话名称，然后是代码增删行数，再然后是时长——而模型徽标和上下文进度条始终保留：
+
+```
+120 列  [opus-4.6 3x·high] │ ◉ remote │ my-project │ git:(main*) │ Fixing auth │ ⏱ 5m │ +42/-3
+ 70 列  [opus-4.6 3x·high] │ ◉ remote │ my-project │ git:(main*) │ ⏱ 5m │ +42/-3
+ 40 列  [opus-4.6 3x·high] │ ◉ remote
+```
+
+仍然过宽的内容会以 `…` 截断，而不是换行。宽度直接向终端本身查询——状态行运行时输出是管道，因此 HUD 会直接询问控制终端。如果确实无法确定宽度，则不做任何截断，行为与以前一致。
+
+通过 `display.fitWidth: false` 关闭，或用 `display.maxWidth` 指定固定宽度（在分屏窗格中，或宽度检测失败时很有用）。
+
 ### 实时工具活动
 
 实时查看 Copilot 正在做什么。当 Copilot 读取文件、执行命令或编辑代码时，工具行会同步更新。完成的工具显示对勾，运行中显示转圈图标，失败显示叉号。
@@ -261,7 +285,9 @@ Copilot CLI 会话
     "rainbowPath": false,
     "showQuota": true,
     "showQuotaCounts": true,
-    "showQuotaReset": true
+    "showQuotaReset": true,
+    "fitWidth": true,
+    "maxWidth": 0
   },
   "colors": {
     "rainbowPathBg": "189"
@@ -292,11 +318,13 @@ Copilot CLI 会话
 | `display.showEffort` | `true` | 在模型徽标中显示 effort 级别和倍率 |
 | `display.showLastCall` | `false` | 显示最后一次 API 调用的 token 消耗 |
 | `display.showCacheBreakdown` | `false` | 分别显示缓存读/写计数 |
-| `display.showPromptPreview` | `false` | 显示最近用户输入预览 |
+| `display.showPromptPreview` | `false` | 显示最近用户输入及其提交至今的时长 |
 | `display.showQuota` | `true` | 显示月度配额进度条（需要会话扩展） |
 | `display.showQuotaCounts` | `true` | 在配额百分比旁显示 `4785/7500` 计数 |
 | `display.showQuotaReset` | `true` | 显示距离配额重置的剩余天数 |
 | `display.rainbowPath` | `false` | 项目路径逐字符彩虹渐变（`false` 时回退到 `colors.project` 纯色） |
+| `display.fitWidth` | `true` | 将每一行裁剪到终端宽度，丢弃低优先级片段而不是换行 |
+| `display.maxWidth` | `0` | `fitWidth` 使用的列宽预算。`0` 表示自动检测，正数表示固定宽度 |
 | `colors.rainbowPathBg` | `"189"` | 彩虹路径背景色。`"none"` 禁用背景；否则为 256 色索引或命名颜色 |
 
 ### 颜色

@@ -33,6 +33,18 @@ export interface HudConfig {
         showQuotaCounts: boolean;
         /** Append days remaining until the entitlement resets. */
         showQuotaReset: boolean;
+        /**
+         * Keep every HUD line within the terminal width, dropping the least
+         * important segments rather than letting the line wrap. Disable to get the
+         * previous behavior of always drawing everything.
+         */
+        fitWidth: boolean;
+        /**
+         * Column budget for `fitWidth`. `0` auto-detects the terminal width; set a
+         * positive number to pin it (useful when the terminal can't be probed, or
+         * when the HUD shares a split pane).
+         */
+        maxWidth: number;
     };
     colors: {
         project: string;

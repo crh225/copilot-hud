@@ -2,6 +2,7 @@ import { basename, sep } from 'node:path';
 import { colorize, dim, RESET, getContextColor, getUsageColor, renderBar, rainbow } from './colors.js';
 import { loadSessionEffort, summariseTools } from './state.js';
 import { loadConfiguredEffort } from './config.js';
+import { joinFit, truncateVisible, KEEP, type Segment } from './width.js';
 import type { RenderContext } from './types.js';
 
 const TOOL_ICONS: Record<string, string> = {
@@ -27,6 +28,26 @@ function statusIcon(status: string): string {
     case 'denied': return '⊘';
     default: return '·';
   }
+}
+
+/**
+ * A denied tool is neither a success nor a failure — the user declined it — so
+ * it gets its own color rather than falling through to the success green.
+ */
+function statusColor(status: string): string {
+  switch (status) {
+    case 'failure': return 'red';
+    case 'running': return 'yellow';
+    case 'denied': return 'brightMagenta';
+    default: return 'green';
+  }
+}
+
+/** Session-scoped state (tools, agents, prompt) must not bleed across sessions. */
+function stateMatchesSession(ctx: RenderContext): boolean {
+  const stateSessionId = ctx.state.sessionId;
+  const sessionId = ctx.session.session_id;
+  return Boolean(stateSessionId && sessionId && stateSessionId === sessionId);
 }
 
 function formatProjectPath(cwd: string, levels: 0 | 1 | 2 | 3): string {
@@ -100,7 +121,9 @@ function parseModelMeta(
 export function renderProjectLine(ctx: RenderContext): string {
   const { session, gitStatus, config } = ctx;
   const cwd = session.cwd ?? ctx.state.cwd ?? process.cwd();
-  const parts: string[] = [];
+  // Priorities are the drop order when the terminal is too narrow: the model
+  // badge is pinned, and the further right a segment sits the sooner it goes.
+  const parts: Segment[] = [];
 
   // Model badge with optional effort + multiplier
   const meta = parseModelMeta(
@@ -120,21 +143,23 @@ export function renderProjectLine(ctx: RenderContext): string {
     if (meta.multiplier) modelBadge += ` ${meta.multiplier}`;
     if (meta.effort) modelBadge += `·${meta.effort}`;
   }
-  parts.push(colorize(`[${modelBadge}]`, config.colors.header));
+  parts.push({ text: colorize(`[${modelBadge}]`, config.colors.header), priority: KEEP });
 
   // Remote-control indicator — someone is attached to this session via --remote/--connect
   if (config.display.showRemote && session.remote?.connected) {
-    parts.push(colorize('◉ remote', 'brightMagenta'));
+    // Pinned: a second driver on the session is never the thing to hide.
+    parts.push({ text: colorize('◉ remote', 'brightMagenta'), priority: KEEP });
   }
 
   // Project path — rainbow gradient or solid color based on config
   if (config.display.showProjectName) {
     const path = formatProjectPath(cwd, config.pathLevels);
-    parts.push(
-      config.display.rainbowPath
+    parts.push({
+      text: config.display.rainbowPath
         ? rainbow(path, config.colors.rainbowPathBg)
         : colorize(path, config.colors.project),
-    );
+      priority: 1,
+    });
   }
 
   // Git status
@@ -147,18 +172,21 @@ export function renderProjectLine(ctx: RenderContext): string {
       if (gitStatus.ahead > 0) branchText += ` ↑${gitStatus.ahead}`;
       if (gitStatus.behind > 0) branchText += ` ↓${gitStatus.behind}`;
     }
-    parts.push(`${colorize('git:(', config.colors.git)}${colorize(branchText, config.colors.gitBranch)}${colorize(')', config.colors.git)}`);
+    parts.push({
+      text: `${colorize('git:(', config.colors.git)}${colorize(branchText, config.colors.gitBranch)}${colorize(')', config.colors.git)}`,
+      priority: 2,
+    });
   }
 
   // Session name
   if (config.display.showSessionName && session.session_name) {
-    parts.push(dim(session.session_name));
+    parts.push({ text: dim(session.session_name), priority: 5 });
   }
 
   // Session duration
   if (config.display.showSessionDuration && session.cost?.total_duration_ms !== undefined) {
     const duration = formatDuration(session.cost.total_duration_ms);
-    parts.push(dim(`⏱ ${duration}`));
+    parts.push({ text: dim(`⏱ ${duration}`), priority: 4 });
   }
 
   // Lines added/removed
@@ -166,11 +194,14 @@ export function renderProjectLine(ctx: RenderContext): string {
     const added = session.cost.total_lines_added ?? 0;
     const removed = session.cost.total_lines_removed ?? 0;
     if (added > 0 || removed > 0) {
-      parts.push(`${colorize(`+${added}`, 'green')}${dim('/')}${colorize(`-${removed}`, 'red')}`);
+      parts.push({
+        text: `${colorize(`+${added}`, 'green')}${dim('/')}${colorize(`-${removed}`, 'red')}`,
+        priority: 3,
+      });
     }
   }
 
-  return `${RESET}${parts.join(dim(' │ '))}`;
+  return `${RESET}${joinFit(parts, dim(' │ '), ctx.width)}`;
 }
 
 /** Whole days until an entitlement resets; null when the date is missing or past. */
@@ -233,7 +264,7 @@ function renderQuota(ctx: RenderContext): string | null {
 export function renderContextLine(ctx: RenderContext): string | null {
   const { session, config } = ctx;
   const cw = session.context_window;
-  const parts: string[] = [];
+  const parts: Segment[] = [];
 
   // Context bar — prefer live current-context fields (populated from render 1),
   // fall back to the cumulative/legacy fields when missing.
@@ -244,10 +275,13 @@ export function renderContextLine(ctx: RenderContext): string | null {
       ?? (cw?.remaining_tokens !== undefined ? totalSize - cw.remaining_tokens : Math.round((pct * totalSize) / 100));
     const bar = renderBar(pct, 10, getContextColor);
     const color = getContextColor(pct);
-    parts.push(`${dim('Ctx')} ${bar} ${colorize(`${formatTokens(usedTokens)}/${formatTokens(totalSize)}`, color)} ${colorize(`${pct}%`, color)}`);
+    parts.push({
+      text: `${dim('Ctx')} ${bar} ${colorize(`${formatTokens(usedTokens)}/${formatTokens(totalSize)}`, color)} ${colorize(`${pct}%`, color)}`,
+      priority: KEEP,
+    });
   } else {
     const bar = renderBar(0, 10, getContextColor);
-    parts.push(`${dim('Ctx')} ${bar} ${colorize('0%', getContextColor(0))}`);
+    parts.push({ text: `${dim('Ctx')} ${bar} ${colorize('0%', getContextColor(0))}`, priority: KEEP });
   }
 
   // Monthly entitlement bar, e.g. `Quota ██████░░░░ 4785/7500 64% · 19d`.
@@ -259,7 +293,7 @@ export function renderContextLine(ctx: RenderContext): string | null {
   // typically unlimited and would render as a permanently empty one.
   const quotaSegment = renderQuota(ctx);
   if (quotaSegment) {
-    parts.push(quotaSegment);
+    parts.push({ text: quotaSegment, priority: 2 });
   }
 
   // Credits used this session (Copilot's usage-based billing, surfaced under
@@ -267,9 +301,12 @@ export function renderContextLine(ctx: RenderContext): string | null {
   // e.g. "26.5" where 1 AIU = $0.01 USD). Falls back to the legacy
   // `cost.total_premium_requests` counter on older Copilot CLI builds.
   if (session.ai_used?.formatted !== undefined) {
-    parts.push(`${dim('Credits')} ${colorize(session.ai_used.formatted, 'brightBlue')}`);
+    parts.push({ text: `${dim('Credits')} ${colorize(session.ai_used.formatted, 'brightBlue')}`, priority: 3 });
   } else if (session.cost?.total_premium_requests !== undefined) {
-    parts.push(`${dim('Reqs')} ${colorize(`${session.cost.total_premium_requests}`, 'brightBlue')}`);
+    parts.push({
+      text: `${dim('Reqs')} ${colorize(`${session.cost.total_premium_requests}`, 'brightBlue')}`,
+      priority: 3,
+    });
   }
 
   // Merged token breakdown (in / out / cache)
@@ -289,7 +326,7 @@ export function renderContextLine(ctx: RenderContext): string | null {
           tokenInfo += ` cache:${formatTokens(totalCache)}`;
         }
       }
-      parts.push(dim(tokenInfo));
+      parts.push({ text: dim(tokenInfo), priority: 5 });
     }
   }
 
@@ -299,7 +336,7 @@ export function renderContextLine(ctx: RenderContext): string | null {
     const apiMs = session.cost.total_api_duration_ms;
     if (apiMs > 0 && outputTokens > 0) {
       const tokPerSec = (outputTokens / apiMs) * 1000;
-      parts.push(dim(`${tokPerSec.toFixed(0)} tok/s`));
+      parts.push({ text: dim(`${tokPerSec.toFixed(0)} tok/s`), priority: 4 });
     }
   }
 
@@ -307,11 +344,50 @@ export function renderContextLine(ctx: RenderContext): string | null {
   if (config.display.showLastCall && cw?.last_call_input_tokens !== undefined) {
     const lastIn = cw.last_call_input_tokens;
     const lastOut = cw.last_call_output_tokens ?? 0;
-    parts.push(dim(`last:${formatTokens(lastIn)}→${formatTokens(lastOut)}`));
+    parts.push({ text: dim(`last:${formatTokens(lastIn)}→${formatTokens(lastOut)}`), priority: 6 });
   }
 
   if (parts.length === 0) return null;
-  return `${RESET}${parts.join(dim(' │ '))}`;
+  return `${RESET}${joinFit(parts, dim(' │ '), ctx.width)}`;
+}
+
+function formatElapsed(ms: number): string {
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  if (mins < 60) return `${mins}m ${remSecs}s`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+
+/**
+ * The prompt currently being worked on, e.g. `❯ fix the auth redirect (12s)`.
+ *
+ * The age is time since the prompt was submitted — during a turn that reads as
+ * how long Copilot has been working, and afterwards as how long the session has
+ * been idle. Timestamps come from the hook payload, so a missing or nonsensical
+ * one (clock skew, a hook that never fired) drops the age rather than the line.
+ */
+export function renderPromptLine(ctx: RenderContext): string | null {
+  const { state, config } = ctx;
+  if (!config.display.showPromptPreview) return null;
+  if (!stateMatchesSession(ctx)) return null;
+
+  const prompt = state.lastPrompt?.replace(/\s+/g, ' ').trim();
+  if (!prompt) return null;
+
+  let line = `${RESET}${colorize('❯', 'cyan')} ${dim(prompt)}`;
+
+  const submitted = state.lastPromptTime;
+  if (submitted && submitted > 0) {
+    const age = ctx.now - submitted;
+    // A day-old prompt means the state file outlived the session it describes.
+    if (age >= 0 && age < 86_400_000) {
+      line += dim(` (${formatElapsed(age)})`);
+    }
+  }
+
+  return ctx.width ? truncateVisible(line, ctx.width) : line;
 }
 
 // Line 3: Tool activity
@@ -319,23 +395,21 @@ export function renderToolsLine(ctx: RenderContext): string | null {
   const { state, config } = ctx;
   if (!config.display.showTools) return null;
 
-  const { recentTools, sessionId: stateSessionId } = state;
+  const { recentTools } = state;
   if (recentTools.length === 0) return null;
 
   // Only show tools when state file session matches the current session
-  const sessionId = ctx.session.session_id;
-  if (!stateSessionId || !sessionId || stateSessionId !== sessionId) return null;
+  if (!stateMatchesSession(ctx)) return null;
 
   const summary = summariseTools(recentTools);
-  const segments: string[] = [];
+  const segments: Segment[] = [];
 
   for (const [toolName, info] of summary.entries()) {
     const icon = getToolIcon(toolName);
     const sIcon = statusIcon(info.lastStatus);
-    const colorName = info.lastStatus === 'failure' ? 'red' : info.lastStatus === 'running' ? 'yellow' : 'green';
-    const inProgress = info.lastStatus === 'running';
+    const colorName = statusColor(info.lastStatus);
 
-    let part = colorize(`${inProgress ? '◐' : sIcon} ${icon} ${toolName.charAt(0).toUpperCase() + toolName.slice(1)}`, colorName);
+    let part = colorize(`${sIcon} ${icon} ${toolName.charAt(0).toUpperCase() + toolName.slice(1)}`, colorName);
 
     if (info.lastTarget) {
       const isPath = info.lastTarget.startsWith('/') || info.lastTarget.startsWith('.');
@@ -345,11 +419,13 @@ export function renderToolsLine(ctx: RenderContext): string | null {
     if (info.count > 1) {
       part += dim(` ×${info.count}`);
     }
-    segments.push(part);
+    // `recentTools` is newest-first, so later entries are staler — drop those
+    // first. The most recent tool is pinned; it's the point of the line.
+    segments.push({ text: part, priority: segments.length === 0 ? KEEP : segments.length });
   }
 
   if (segments.length === 0) return null;
-  return `${RESET}${segments.join(dim(' | '))}`;
+  return `${RESET}${joinFit(segments, dim(' | '), ctx.width)}`;
 }
 
 function formatAgentDuration(startTime: number, endTime?: number, now?: number): string {
@@ -371,8 +447,7 @@ export function renderAgentLines(ctx: RenderContext): string[] {
   if (agents.length === 0) return [];
 
   // Only show agents when state file session matches the current session
-  const sessionId = ctx.session.session_id;
-  if (!state.sessionId || !sessionId || state.sessionId !== sessionId) return [];
+  if (!stateMatchesSession(ctx)) return [];
 
   const lines: string[] = [];
   const max = config.display.maxAgents;
@@ -405,7 +480,7 @@ export function renderAgentLines(ctx: RenderContext): string[] {
     } else {
       line += dim(` (${duration})`);
     }
-    lines.push(line);
+    lines.push(ctx.width ? truncateVisible(line, ctx.width) : line);
   }
 
   return lines;
@@ -419,6 +494,11 @@ export function render(ctx: RenderContext): void {
   const contextLine = renderContextLine(ctx);
   if (contextLine) {
     lines.push(contextLine);
+  }
+
+  const promptLine = renderPromptLine(ctx);
+  if (promptLine) {
+    lines.push(promptLine);
   }
 
   if (ctx.config.display.showTools) {

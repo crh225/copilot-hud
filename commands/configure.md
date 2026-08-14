@@ -117,6 +117,26 @@ this setting has no visible effect.
   - "Rainbow + lavender bg — colorful path with subtle background"
   - "Rainbow, no bg — colorful path without background"
 
+### Q9: Prompt Preview
+
+- header: "Prompt"
+- question: "Show the prompt you're currently waiting on, with its elapsed time? (❯ fix the auth redirect loop (42s))"
+- options:
+  - "No (default) — don't show the prompt line"
+  - "Yes — show the prompt and how long ago it was submitted"
+
+### Q10: Narrow Terminals
+
+- header: "Width"
+- question: "How should the HUD behave when the terminal is too narrow for a full line?"
+- options:
+  - "Fit automatically (default) — drop the least important segments, then truncate"
+  - "Fit to a fixed width — same, but pin the column budget instead of detecting it"
+  - "Never truncate — always draw everything and let the terminal wrap"
+
+If the user picks "Fit to a fixed width", ask for the column count and use it as
+`display.maxWidth`.
+
 ## Build Config from Answers
 
 Map the answers to config keys:
@@ -181,6 +201,17 @@ Map the answers to config keys:
 | Solid color | `display.rainbowPath: false` |
 | Rainbow + lavender bg | `display.rainbowPath: true, colors.rainbowPathBg: "189"` |
 | Rainbow, no bg | `display.rainbowPath: true, colors.rainbowPathBg: "none"` |
+
+| Q9 Selection | Config key |
+|-------------|------------|
+| No | `display.showPromptPreview: false` |
+| Yes | `display.showPromptPreview: true` |
+
+| Q10 Selection | Config keys |
+|-------------|------------|
+| Fit automatically | `display.fitWidth: true, display.maxWidth: 0` |
+| Fit to a fixed width | `display.fitWidth: true, display.maxWidth: <columns the user gave>` |
+| Never truncate | `display.fitWidth: false` |
 
 
 ## Write Config

@@ -2,6 +2,7 @@ import { readState, readQuota } from './state.js';
 import { getGitStatus } from './git.js';
 import { loadConfig } from './config.js';
 import { render } from './render.js';
+import { detectWidth } from './width.js';
 import { fileURLToPath } from 'node:url';
 import { realpathSync } from 'node:fs';
 function readStdin() {
@@ -34,6 +35,7 @@ export async function main() {
             config,
             now: Date.now(),
             quota: config.display.showQuota ? readQuota() : null,
+            width: config.display.fitWidth ? detectWidth(config.display.maxWidth) : undefined,
         };
         render(ctx);
     }

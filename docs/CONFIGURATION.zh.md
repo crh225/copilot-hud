@@ -54,7 +54,9 @@ $EDITOR ~/.copilot/plugins/copilot-hud/config.json
     "showEffort": true,
     "showLastCall": false,
     "showCacheBreakdown": false,
-    "rainbowPath": false
+    "rainbowPath": false,
+    "fitWidth": true,
+    "maxWidth": 0
   },
   "colors": {
     "project": "yellow",
@@ -141,7 +143,12 @@ git:(main)            # enabled=true, showDirty=false, showAheadBehind=false
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
 | `showTools` | boolean | `true` | 是否显示工具活动行。设为 `false` 隐藏整行 |
-| `showPromptPreview` | boolean | `false` | 是否显示最近一次用户输入的预览 |
+
+#### 输入预览行
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `showPromptPreview` | boolean | `false` | 显示当前处理的输入及其时长，如 `❯ fix the auth redirect loop (42s)`。绘制在上下文行与工具活动行之间。多行输入会合并为一行；时间戳缺失或超过一天时省略时长。 |
 
 #### 第4行及以下（后台代理）
 
@@ -149,6 +156,21 @@ git:(main)            # enabled=true, showDirty=false, showAheadBehind=false
 |------|------|------|------|
 | `showAgents` | boolean | `true` | 是否显示后台代理追踪行（每个代理一行） |
 | `maxAgents` | number | `5` | 显示代理的最大数量 |
+
+#### 宽度适配（所有行）
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `fitWidth` | boolean | `true` | 让每一行保持在终端宽度内。先按重要性从低到高丢弃片段，然后以 `…` 截断。设为 `false` 则始终完整绘制，由终端自行换行。 |
+| `maxWidth` | number | `0` | `fitWidth` 使用的列宽预算。`0` 表示自动检测终端宽度，正数表示固定宽度。 |
+
+终端变窄时的片段丢弃顺序：
+
+- **第1行** — 会话名称 → 时长 → 代码增删行数 → git → 项目路径。模型徽标和 `◉ remote` 指示器永不丢弃。
+- **第2行** — 最后一次调用 → token 明细 → 输出速度 → credits → 配额。上下文进度条永不丢弃。
+- **第3行** — 从最旧的工具开始丢弃；最近的一个工具永不丢弃。
+
+宽度检测依次尝试：`maxWidth`、`COPILOT_HUD_COLUMNS` 环境变量、stdout/stderr 流、`COLUMNS`，最后通过 `/dev/tty` 查询控制终端。实际生效的通常是最后一项，因为 Copilot 运行状态行时输出是管道。若全部失败，则完全不做截断。
 
 工具活动行示例：
 ```

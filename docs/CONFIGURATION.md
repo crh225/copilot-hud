@@ -54,7 +54,9 @@ All available fields with their defaults, sourced directly from `src/config.ts`:
     "showEffort": true,
     "showLastCall": false,
     "showCacheBreakdown": false,
-    "rainbowPath": false
+    "rainbowPath": false,
+    "fitWidth": true,
+    "maxWidth": 0
   },
   "colors": {
     "project": "yellow",
@@ -142,7 +144,12 @@ The context bar and request count are always shown. These are optional additions
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `showTools` | boolean | `true` | Show or hide the entire tool activity line |
-| `showPromptPreview` | boolean | `false` | Show a preview of the last user prompt |
+
+#### Prompt preview line
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `showPromptPreview` | boolean | `false` | Show the prompt being worked on and its age, e.g. `❯ fix the auth redirect loop (42s)`. Drawn between the context line and the tool activity line. Multi-line prompts are collapsed; the age is omitted when the timestamp is missing or more than a day old. |
 
 #### Lines 4+ (background agents)
 
@@ -150,6 +157,25 @@ The context bar and request count are always shown. These are optional additions
 |-------|------|---------|-------------|
 | `showAgents` | boolean | `true` | Show background agent tracking lines (one line per tracked agent) |
 | `maxAgents` | number | `5` | Maximum number of agents to display |
+
+#### Width fitting (all lines)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `fitWidth` | boolean | `true` | Keep every line inside the terminal width. Segments are dropped least-important-first, then the line is truncated with `…`. Set `false` to always draw everything and let the terminal wrap. |
+| `maxWidth` | number | `0` | Column budget for `fitWidth`. `0` auto-detects the terminal width; a positive number pins it. |
+
+Segments are dropped in this order as the terminal narrows:
+
+- **Line 1** — session name → duration → lines changed → git → project path. The model badge and the `◉ remote` indicator are never dropped.
+- **Line 2** — last call → token breakdown → output speed → credits → quota. The context bar is never dropped.
+- **Line 3** — oldest tools first; the most recent tool is never dropped.
+
+Width detection tries, in order: `maxWidth`, the `COPILOT_HUD_COLUMNS` environment
+variable, the stdout/stderr streams, `COLUMNS`, and finally the controlling
+terminal via `/dev/tty`. The last one is what normally answers, because Copilot
+runs the statusline with its output piped. If every source fails, no truncation
+happens at all.
 
 Tool activity line example:
 ```
