@@ -19,6 +19,35 @@ Missing keys use the defaults in `docs/CONFIGURATION.md`. The effective config i
 
 Ask the user these questions, in two batches of four. Put the current value in each question. In multi-select questions, every listed item becomes `true` if selected and `false` if not. Every single-select question also offers "Keep current", which changes none of its keys.
 
+Send each batch as one form: a single ask with one property per question. The form schema is strict about the two question shapes, so use exactly these:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "git": {
+      "type": "string",
+      "title": "Git",
+      "description": "Currently: Branch + dirty + ahead/behind",
+      "enum": ["Keep current", "Branch + dirty + ahead/behind", "Branch + dirty", "Branch only", "Disabled"],
+      "default": "Keep current"
+    },
+    "activity": {
+      "type": "array",
+      "title": "Activity lines",
+      "description": "Select every line to show. Unselected lines are hidden.",
+      "items": { "type": "string", "enum": ["Tools", "Agents", "Prompt"] },
+      "default": ["Tools", "Agents"]
+    }
+  }
+}
+```
+
+- Single select: `"type": "string"` with `enum`.
+- Multi-select: `"type": "array"` whose `items` has **both** `"type": "string"` and `enum`. Leaving `type` out of `items` is rejected as invalid input.
+- Set a multi-select's `default` to the items that are currently on, so submitting it untouched changes nothing. Don't set `minItems`: selecting nothing is a valid answer and turns every item off.
+- Keep the option labels short, as above. The example output for each option belongs in the `description`.
+
 ### Batch 1
 
 **Detail** (single select) — how much the two info lines show. Model, context bar, and credits are always shown.
