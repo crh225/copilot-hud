@@ -8,6 +8,8 @@ export interface HudConfig {
     enabled: boolean;
     showDirty: boolean;
     showAheadBehind: boolean;
+    /** Append changed-file counts to the branch: `!3 +1 ✘2 ?4`. */
+    showFileStats: boolean;
   };
   display: {
     showTools: boolean;
@@ -37,6 +39,12 @@ export interface HudConfig {
     showQuotaCounts: boolean;
     /** Append days remaining until the entitlement resets. */
     showQuotaReset: boolean;
+    /**
+     * Flag the quota bar with `▲` when usage is on track to run out before the
+     * entitlement resets — amber when it would end the month at 90% or more,
+     * red when it would hit the limit first.
+     */
+    showQuotaPace: boolean;
     /**
      * Keep every HUD line within the terminal width, dropping the least
      * important segments rather than letting the line wrap. Disable to get the
@@ -73,6 +81,7 @@ const DEFAULTS: HudConfig = {
     enabled: true,
     showDirty: true,
     showAheadBehind: true,
+    showFileStats: false,
   },
   display: {
     showTools: true,
@@ -94,6 +103,7 @@ const DEFAULTS: HudConfig = {
     showQuota: true,
     showQuotaCounts: true,
     showQuotaReset: true,
+    showQuotaPace: false,
     fitWidth: true,
     maxWidth: 0,
   },

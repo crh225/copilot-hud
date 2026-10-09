@@ -44,7 +44,9 @@ nothing to install beyond Node itself.
    /copilot-hud:setup
    ```
 
-The setup will automatically create the wrapper script, configure the status line, and enable the experimental flag. Restart Copilot after setup and the HUD will appear at the bottom of the interface.
+The setup points Copilot's status line at the HUD, installs the quota-bar extension, and enables the experimental flag. Restart Copilot after setup and the HUD will appear at the bottom of the interface.
+
+Setup is safe to re-run and you rarely need to: it installs a small launcher that finds the installed plugin each time the status line runs, so updating, reinstalling, or moving the plugin to another marketplace keeps working. It backs up your Copilot settings before changing them, and if you already have a different status line it asks before replacing it.
 
 3. (Optional) Customize what the HUD shows:
    ```
@@ -52,7 +54,43 @@ The setup will automatically create the wrapper script, configure the status lin
    ```
    Choose which elements to display — session name, duration, token breakdown, output speed, tool activity, agent tracking, and git style.
 
-> **Note:** The `statusLine` feature in Copilot CLI requires the `--experimental` flag as of v1.0.12. The setup skill adds this to your config permanently.
+> **Note:** The `statusLine` feature in Copilot CLI requires the `--experimental` flag as of v1.0.12. The setup skill adds `"experimental": true` to your Copilot settings so you don't need the flag again.
+
+<details>
+<summary><strong>What setup changes, and doing it by hand</strong></summary>
+
+Setup runs `node scripts/setup.mjs install` from the installed plugin. Under your Copilot home (`~/.copilot`, or `$COPILOT_HOME`) it writes:
+
+| File | What it is |
+|------|------------|
+| `plugins/copilot-hud/statusline.mjs` | The launcher. Finds the installed copilot-hud and runs it |
+| `copilot-hud.sh` (`copilot-hud.cmd` on Windows) | The wrapper Copilot executes. Pins the Node that ran setup, falling back to `node` on `PATH` |
+| `extensions/copilot-hud/extension.mjs` | The quota-bar session extension (skip with `--no-extension`) |
+| `settings.json` | Gains `statusLine` and `"experimental": true`; every other key is kept. Backed up to `settings.json.bak.<timestamp>` first |
+
+On Copilot CLI versions from before user settings moved to `settings.json`, the same keys go in `config.json` instead; setup detects which one your CLI reads.
+
+`node scripts/setup.mjs inspect` prints what would happen without changing anything.
+
+</details>
+
+### Refreshing While Idle
+
+Copilot re-runs the status line when something happens in the session, so the prompt timer and running-agent durations stand still while you wait. On Copilot CLI v1.0.76+ you can make them tick by adding `refreshInterval` (seconds) to the `statusLine` entry in `~/.copilot/settings.json`:
+
+```json
+"statusLine": { "type": "command", "command": "~/.copilot/copilot-hud.sh", "refreshInterval": 5 }
+```
+
+Setup keeps a `refreshInterval` or `padding` you add here.
+
+### Turning It Off for a Session
+
+```bash
+COPILOT_HUD_DISABLE=1 copilot
+```
+
+Any value other than `0`, `false`, `off`, or `no` blanks the HUD for that session without touching your settings.
 
 ### Install from Source
 
@@ -137,6 +175,11 @@ attach to the live session.
 `~/.copilot/extensions/copilot-hud/extension.mjs`. Extensions load by default,
 so no further configuration is needed.
 
+Copilot only loads extensions from its own extensions directory, so the
+installed file is a copy. It is kept current for you: each session start
+compares it with the plugin's and replaces it if the plugin has moved on. The
+refreshed copy takes effect the next time Copilot starts.
+
 > **The bar won't appear immediately.** After running `/copilot-hud:setup` (or
 > `/copilot-hud:configure`) you need to:
 >
@@ -163,6 +206,17 @@ response of the new one updates it.
 
 Without the extension the HUD renders exactly as before, minus the quota bar.
 Configure it with `/copilot-hud:configure` or the `display.showQuota*` keys.
+
+**Pace.** The percentage alone doesn't say whether you're in trouble — 40% is
+calm on day 20 and a problem on day 5. With `display.showQuotaPace` the bar
+projects your usage so far to the reset date and flags it with `▲`: amber when
+you're on track to end the month at 90% or more, red when you'd run out first.
+
+```
+Quota ████░░░░░░ 3000/7500 40% ▲ · 25d
+```
+
+Buckets under 10% used are never flagged.
 
 ### Session Info
 Optionally show the session name and duration on the project line:
@@ -258,8 +312,8 @@ The number of agents displayed is configurable via `display.maxAgents` (default:
 ```
 Copilot CLI session
   │
-  ├─ statusLine (experimental) ──→ copilot-hud.sh
-  │    pipes session JSON on stdin     │
+  ├─ statusLine (experimental) ──→ copilot-hud.sh ──→ statusline.mjs
+  │    pipes session JSON on stdin     (finds the installed plugin)
   │    (model, context_window, cost)   ▼
   │                              node dist/index.js
   │                                    │
@@ -272,6 +326,8 @@ Copilot CLI session
 - **statusLine** receives session JSON on stdin including: model (id, display_name with effort/multiplier), context_window (live `current_context_*` and `displayed_context_limit`, plus cumulative sizes/percentages/token counts, cache stats, last call, reasoning tokens), cost (duration, API time, lines added/removed), `ai_used` (credits under Copilot's usage-based billing — prefer `formatted`, raw value in `total_nano_aiu`; falls back to legacy `cost.total_premium_requests`), session metadata (name, id, cwd, transcript_path), Copilot CLI version, and `remote.connected` for remote-control sessions
 - **Hooks** fire on `sessionStart`, `userPromptSubmitted`, `preToolUse`, `postToolUse`, and `sessionEnd`, writing to `~/.copilot/hud-state.json`. The `.sh` and `.ps1` hooks are thin wrappers around one shared Node implementation in `scripts/hud-hook.mjs`, so both platforms behave identically
 - The HUD script merges both data sources and renders colorized output
+- Text the HUD didn't author — prompts, tool targets, agent descriptions, branch and directory names — is stripped of escape sequences, control characters, and bidirectional overrides before it reaches your terminal
+- Git status is one read-only `git status --porcelain=v2 --branch` call per render, run with `--no-optional-locks` so an interrupted render can't leave `.git/index.lock` behind
 
 ---
 
@@ -287,7 +343,8 @@ Edit `~/.copilot/plugins/copilot-hud/config.json`:
   "gitStatus": {
     "enabled": true,
     "showDirty": true,
-    "showAheadBehind": true
+    "showAheadBehind": true,
+    "showFileStats": false
   },
   "display": {
     "showTools": true,
@@ -309,6 +366,7 @@ Edit `~/.copilot/plugins/copilot-hud/config.json`:
     "showQuota": true,
     "showQuotaCounts": true,
     "showQuotaReset": true,
+    "showQuotaPace": false,
     "fitWidth": true,
     "maxWidth": 0
   },
@@ -328,6 +386,7 @@ Or run `/copilot-hud:configure` inside a Copilot session for guided setup.
 | `gitStatus.enabled` | `true` | Show git branch |
 | `gitStatus.showDirty` | `true` | Show `*` for uncommitted changes |
 | `gitStatus.showAheadBehind` | `true` | Show `↑N ↓N` ahead/behind remote |
+| `gitStatus.showFileStats` | `false` | Show changed-file counts: `!3 +1 ✘2 ?4` for modified, added, deleted, untracked |
 | `display.showTools` | `true` | Show tool activity line |
 | `display.showAgents` | `true` | Show background agent tracking |
 | `display.maxAgents` | `5` | Max number of agents to display |
@@ -347,6 +406,7 @@ Or run `/copilot-hud:configure` inside a Copilot session for guided setup.
 | `display.showQuota` | `true` | Show the monthly entitlement bar (requires the session extension) |
 | `display.showQuotaCounts` | `true` | Include `4785/7500` counts alongside the quota percentage |
 | `display.showQuotaReset` | `true` | Include days remaining until the entitlement resets |
+| `display.showQuotaPace` | `false` | Flag the quota bar with `▲` (amber, then red) when usage is on track to run out before the reset |
 | `display.fitWidth` | `true` | Fit every line to the terminal width, dropping low-priority segments instead of wrapping |
 | `display.maxWidth` | `0` | Column budget for `fitWidth`. `0` auto-detects; a positive number pins it |
 | `colors.rainbowPathBg` | `"189"` | Background color for rainbow path. `"none"` disables background; otherwise a 256-color index or named color |
@@ -365,13 +425,15 @@ Colors can be specified as:
 # 1. Remove the plugin
 copilot plugin uninstall copilot-hud
 
-# 2. Remove the wrapper script
+# 2. Remove the wrapper script and the quota extension
 rm ~/.copilot/copilot-hud.sh
+rm -rf ~/.copilot/extensions/copilot-hud
 
-# 3. Remove the statusLine config from ~/.copilot/config.json
-#    Delete the "statusLine" and "experimental" keys if no longer needed
+# 3. Remove the statusLine config from ~/.copilot/settings.json
+#    Delete the "statusLine" and "experimental" keys if no longer needed.
+#    (Setup left a backup beside it: settings.json.bak.<timestamp>)
 
-# 4. Remove plugin config (optional)
+# 4. Remove the launcher and plugin config (optional)
 rm -rf ~/.copilot/plugins/copilot-hud
 ```
 
@@ -382,6 +444,9 @@ rm -rf ~/.copilot/plugins/copilot-hud
 ```bash
 # Build
 npm run build
+
+# Build and run the tests
+npm test
 
 # Test with mock session data
 echo '{"cwd":"/tmp/myapp","model":{"display_name":"claude-opus-4.6 (3x) (high)"},"context_window":{"context_window_size":200000,"remaining_tokens":130000,"used_percentage":35,"total_input_tokens":1500000,"total_output_tokens":12200,"total_cache_read_tokens":1400000},"cost":{"total_duration_ms":300000,"total_api_duration_ms":45000,"total_lines_added":42,"total_lines_removed":3},"ai_used":{"total_nano_aiu":1420000000,"formatted":"1.42"},"session_name":"Creating README"}' | node dist/index.js

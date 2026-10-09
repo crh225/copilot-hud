@@ -38,7 +38,8 @@ All available fields with their defaults, sourced directly from `src/config.ts`:
   "gitStatus": {
     "enabled": true,
     "showDirty": true,
-    "showAheadBehind": true
+    "showAheadBehind": true,
+    "showFileStats": false
   },
   "display": {
     "showTools": true,
@@ -100,12 +101,14 @@ Controls how many directory levels appear on line 1. Has no effect when `display
 | `enabled` | boolean | `true` | Show or hide git info entirely |
 | `showDirty` | boolean | `true` | Append `*` when there are uncommitted changes, e.g. `git:(main*)` |
 | `showAheadBehind` | boolean | `true` | Show commits ahead/behind remote, e.g. `git:(main ↑2 ↓1)` |
+| `showFileStats` | boolean | `false` | Show changed-file counts: `!` modified, `+` added, `✘` deleted, `?` untracked. Zero counts are omitted |
 
 **Output examples:**
 
 ```
 git:(main*)           # enabled=true, showDirty=true,  showAheadBehind=false
 git:(main* ↑2 ↓1)    # enabled=true, showDirty=true,  showAheadBehind=true
+git:(main* !3 +1 ?4)  # enabled=true, showDirty=true,  showFileStats=true
 git:(main)            # enabled=true, showDirty=false, showAheadBehind=false
 (hidden)              # enabled=false
 ```
@@ -138,6 +141,15 @@ The context bar and request count are always shown. These are optional additions
 | `showOutputSpeed` | boolean | `true` | Show output throughput, e.g. `│ 42 tok/s` |
 | `showLastCall` | boolean | `false` | Show last API call tokens, e.g. `│ last:76.0k→200` |
 | `showCacheBreakdown` | boolean | `false` | Show cache read/write separately, e.g. `│ cache·R:1.5M W:0` |
+
+The monthly quota bar also sits on this line. It needs the session extension that `/copilot-hud:setup` installs; without it these have no visible effect:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `showQuota` | boolean | `true` | Show the entitlement bar, e.g. `│ Quota ██████░░░░ 64%` |
+| `showQuotaCounts` | boolean | `true` | Add the raw counts, e.g. `4785/7500` |
+| `showQuotaReset` | boolean | `true` | Add days until the entitlement resets, e.g. `· 19d` |
+| `showQuotaPace` | boolean | `false` | Project usage so far to the reset date and flag the bar with `▲` — amber when on track to end at 90% or more, red when on track to run out first. Buckets under 10% used are never flagged |
 
 #### Line 3 (tool activity)
 
@@ -422,8 +434,10 @@ echo '{
     "formatted": "1.42"
   },
   "session_name": "Creating README"
-}' | node ~/.copilot/installed-plugins/_direct/griches--copilot-hud/dist/index.js
+}' | ~/.copilot/copilot-hud.sh
 ```
+
+`~/.copilot/copilot-hud.sh` is the wrapper `/copilot-hud:setup` installs — the same command Copilot runs.
 
 ---
 
@@ -433,3 +447,4 @@ echo '{
 - **Invalid JSON is silently ignored** — if `config.json` is malformed, the HUD falls back to defaults without errors.
 - **Changes are instant** — no restart needed. The config is re-read on every status line render.
 - **256-color values** must be integers `0–255` written as strings (e.g. `"208"`, not `208`).
+- **`COPILOT_HUD_DISABLE=1`** in the environment that starts Copilot blanks the HUD for that session, whatever the config says.

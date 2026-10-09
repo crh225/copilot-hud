@@ -38,7 +38,8 @@ $EDITOR ~/.copilot/plugins/copilot-hud/config.json
   "gitStatus": {
     "enabled": true,
     "showDirty": true,
-    "showAheadBehind": true
+    "showAheadBehind": true,
+    "showFileStats": false
   },
   "display": {
     "showTools": true,
@@ -100,12 +101,14 @@ $EDITOR ~/.copilot/plugins/copilot-hud/config.json
 | `enabled` | boolean | `true` | 是否显示 git 信息 |
 | `showDirty` | boolean | `true` | 有未提交改动时显示 `*`，例如 `git:(main*)` |
 | `showAheadBehind` | boolean | `true` | 显示本地超前/落后远程的提交数，例如 `git:(main ↑2 ↓1)` |
+| `showFileStats` | boolean | `false` | 显示变更文件计数：`!` 已修改、`+` 新增、`✘` 删除、`?` 未跟踪。为零的计数不显示 |
 
 **示例组合：**
 
 ```
 git:(main*)           # enabled=true, showDirty=true, showAheadBehind=false
 git:(main* ↑2 ↓1)    # enabled=true, showDirty=true, showAheadBehind=true
+git:(main* !3 +1 ?4)  # enabled=true, showDirty=true, showFileStats=true
 git:(main)            # enabled=true, showDirty=false, showAheadBehind=false
 （不显示）             # enabled=false
 ```
@@ -137,6 +140,15 @@ git:(main)            # enabled=true, showDirty=false, showAheadBehind=false
 | `showOutputSpeed` | boolean | `true` | 显示输出速度，例如 `│ 42 tok/s` |
 | `showLastCall` | boolean | `false` | 显示最近一次 API 调用 token，例如 `│ last:76.0k→200` |
 | `showCacheBreakdown` | boolean | `false` | 分别显示缓存读/写，例如 `│ cache·R:1.5M W:0` |
+
+月度配额进度条也显示在这一行。它依赖 `/copilot-hud:setup` 安装的会话扩展；未安装时以下选项没有可见效果：
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `showQuota` | boolean | `true` | 显示配额进度条，例如 `│ Quota ██████░░░░ 64%` |
+| `showQuotaCounts` | boolean | `true` | 附加原始计数，例如 `4785/7500` |
+| `showQuotaReset` | boolean | `true` | 附加距离配额重置的天数，例如 `· 19d` |
+| `showQuotaPace` | boolean | `false` | 按当前用量推算到重置日，并用 `▲` 标记进度条——预计月末达到 90% 及以上时为琥珀色，预计提前耗尽时为红色。用量低于 10% 时不标记 |
 
 #### 第3行（工具活动行）
 
@@ -415,8 +427,10 @@ echo '{
     "formatted": "1.42"
   },
   "session_name": "Creating README"
-}' | node ~/.copilot/installed-plugins/_direct/griches--copilot-hud/dist/index.js
+}' | ~/.copilot/copilot-hud.sh
 ```
+
+`~/.copilot/copilot-hud.sh` 是 `/copilot-hud:setup` 安装的 wrapper，也就是 Copilot 实际执行的命令。
 
 如果 HUD 输出与预期一致，配置正确。
 
@@ -428,3 +442,4 @@ echo '{
 2. **JSON 格式错误** — 如果 `config.json` 格式无效，HUD 会静默回退到默认配置，不会报错。
 3. **立即生效** — 修改后不需要重启 Copilot，下一次状态栏刷新时自动读取新配置。
 4. **颜色数字** — 256 色必须是 `0–255` 的整数（写成字符串 `"208"`，不是数字 `208`）。
+5. **`COPILOT_HUD_DISABLE=1`** — 在启动 Copilot 的环境中设置该变量，可在该会话中隐藏 HUD，不受配置影响。

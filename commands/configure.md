@@ -3,223 +3,103 @@ description: Configure which elements appear in the Copilot HUD
 allowed-tools: Bash, Read, Edit
 ---
 
-# Copilot HUD Configuration
+# Configure Copilot HUD
 
-This command lets you customize what the Copilot HUD displays.
+## Read the current config
 
-## Read Current Config
-
-First, read the existing config (if any):
+The config file is `plugins/copilot-hud/config.json` inside the Copilot home (`$COPILOT_HOME` when set, otherwise `~/.copilot`). This command writes only that file.
 
 ```bash
-COPILOT_HOME="${COPILOT_HOME:-$HOME/.copilot}"
-cat "$COPILOT_HOME/plugins/copilot-hud/config.json" 2>/dev/null || echo "(no config — using defaults)"
+cat "${COPILOT_HOME:-$HOME/.copilot}/plugins/copilot-hud/config.json" 2>/dev/null || echo "(no config — using defaults)"
 ```
 
-## Configuration Flow
+Missing keys use the defaults in `docs/CONFIGURATION.md`. The effective config is the file layered over those defaults; use the effective values when describing the current state.
 
-Present the user with configuration choices using AskUserQuestion.
+## Ask
 
-### Q1: Display Preset
+Ask the user these questions, in two batches of four. Put the current value in each question. In multi-select questions, every listed item becomes `true` if selected and `false` if not. Every single-select question also offers "Keep current", which changes none of its keys.
 
-Ask which level of detail to show:
-- header: "Display"
-- question: "How much info should the HUD show? (Model, context bar, and credits are always shown. The quota bar is configured separately in Q7.)"
-- multiSelect: false
-- options:
-  - "Full — session name, duration, token breakdown, output speed, lines changed, effort, last call, and cache breakdown"
-  - "Standard — session name, duration, token breakdown, output speed, lines changed, and effort"
-  - "Minimal — model, project, context bar, and credits only"
+### Batch 1
 
-### Q2: Tool Activity
+**Detail** (single select) — how much the two info lines show. Model, context bar, and credits are always shown.
 
-- header: "Tools"
-- question: "Show live tool activity? (✓ Edit: auth.ts | ✓ Bash: git status ×3)"
-- options:
-  - "Yes — show running and completed tools"
-  - "No — hide tool activity"
+| Option | Keys (all under `display`) |
+|---|---|
+| Full — everything, plus last call and cache read/write | `showSessionName`, `showSessionDuration`, `showTokenBreakdown`, `showOutputSpeed`, `showLinesChanged`, `showEffort`, `showLastCall`, `showCacheBreakdown`: all `true` |
+| Standard (default) — session name, duration, tokens, speed, lines changed, effort | the first six `true`; `showLastCall`, `showCacheBreakdown`: `false` |
+| Minimal — model, project, context bar, credits | all eight `false` |
 
-### Q2b: Agent Activity
+**Activity lines** (multi-select)
 
-- header: "Agents"
-- question: "Show background agent tracking? (✓ [explore] Search codebase (12s))"
-- options:
-  - "Yes — show spawned agent status and duration"
-  - "No — hide agent activity"
+- "Tools — `✓ Edit: auth.ts | ✓ Bash: git status ×3`": `display.showTools`
+- "Agents — `✓ [explore] Search codebase (12s)`": `display.showAgents`
+- "Prompt — `❯ fix the auth redirect loop (42s)`": `display.showPromptPreview`
 
-### Q2c: Agent History (only ask if Q2b is "Yes")
+**Git** (single select)
 
-- header: "Agent History"
-- question: "How many agents to show in the status line?"
-- options:
-  - "3 — compact"
-  - "5 — default"
-  - "8 — extended"
-  - "10 — full history"
+| Option | `gitStatus` keys |
+|---|---|
+| Branch + dirty + ahead/behind (default) — `git:(main* ↑2 ↓1)` | `enabled: true`, `showDirty: true`, `showAheadBehind: true` |
+| Branch + dirty — `git:(main*)` | `enabled: true`, `showDirty: true`, `showAheadBehind: false` |
+| Branch only — `git:(main)` | `enabled: true`, `showDirty: false`, `showAheadBehind: false` |
+| Disabled | `enabled: false` |
 
-### Q3: Git Style
+**Quota bar** (single select) — monthly entitlement usage. It needs the session extension that `/copilot-hud:setup` installs; without it this setting has no visible effect.
 
-- header: "Git"
-- question: "How much git info to show?"
-- options:
-  - "Branch + dirty — git:(main*)"
-  - "Branch + dirty + ahead/behind — git:(main* ↑2 ↓1)"
-  - "Branch only — git:(main)"
-  - "Disabled — hide git info"
+| Option | Keys (all under `display`) |
+|---|---|
+| Full (default) — `Quota ██████░░░░ 4785/7500 64% · 19d` | `showQuota: true`, `showQuotaCounts: true`, `showQuotaReset: true` |
+| Bar + counts — `Quota ██████░░░░ 4785/7500 64%` | `showQuota: true`, `showQuotaCounts: true`, `showQuotaReset: false` |
+| Compact — `Quota ██████░░░░ 64%` | `showQuota: true`, `showQuotaCounts: false`, `showQuotaReset: false` |
+| Hidden | `showQuota: false` |
 
-### Q4: Project Path Depth
+### Batch 2
 
-- header: "Path"
-- question: "How many directory levels to show?"
-- options:
-  - "1 level (default) — my-project"
-  - "2 levels — projects/my-project"
-  - "3 levels — you/projects/my-project"
-  - "0 levels — full absolute path — /Users/you/projects/my-project"
-  - "Hide — don't show the project name"
+**Project path** (single select)
 
-### Q5: Code Stats
+| Option | Keys |
+|---|---|
+| 1 level (default) — `my-project` | `pathLevels: 1`, `display.showProjectName: true` |
+| 2 levels — `projects/my-project` | `pathLevels: 2`, `display.showProjectName: true` |
+| 3 levels — `you/projects/my-project` | `pathLevels: 3`, `display.showProjectName: true` |
+| Full path — `/Users/you/projects/my-project` | `pathLevels: 0`, `display.showProjectName: true` |
+| Hidden | `display.showProjectName: false` |
 
-- header: "Lines Changed"
-- question: "Show lines added/removed? (+42/-3 style)"
-- options:
-  - "Yes — show lines changed"
-  - "No — hide lines changed"
+**Path style** (single select)
 
-### Q6: Effort Display
+| Option | Keys |
+|---|---|
+| Solid color (default) | `display.rainbowPath: false` |
+| Rainbow + lavender background | `display.rainbowPath: true`, `colors.rainbowPathBg: "189"` |
+| Rainbow, no background | `display.rainbowPath: true`, `colors.rainbowPathBg: "none"` |
 
-- header: "Effort"
-- question: "Show model effort level and multiplier? (3x·high)"
-- options:
-  - "Yes — show effort info"
-  - "No — hide effort info"
+**Extras** (multi-select)
 
-### Q7: Quota Bar
+- "Git file counts — `git:(main* !3 +1 ✘2 ?4)`": `gitStatus.showFileStats`
+- "Quota pace — flag the quota bar with `▲` when you're on track to run out before it resets": `display.showQuotaPace`
+- "Remote indicator — `◉ remote` when someone is attached to the session": `display.showRemote`
 
-The quota bar shows your monthly entitlement usage. It only appears if the
-session extension is installed (Step 3 of `/copilot-hud:setup`) — without it,
-this setting has no visible effect.
+**Narrow terminals** (single select)
 
-- header: "Quota"
-- question: "How should the monthly quota bar appear? (Requires the session extension.)"
-- options:
-  - "Full — bar, counts, and reset countdown (Quota ██████░░░░ 4785/7500 64% · 19d)"
-  - "Bar + counts — no reset countdown (Quota ██████░░░░ 4785/7500 64%)"
-  - "Compact — bar and percentage only (Quota ██████░░░░ 64%)"
-  - "Hidden — don't show the quota bar"
+| Option | Keys (all under `display`) |
+|---|---|
+| Fit automatically (default) — drop the least important segments, then truncate | `fitWidth: true`, `maxWidth: 0` |
+| Fit to a fixed width — ask for the column count | `fitWidth: true`, `maxWidth: <columns>` |
+| Never truncate — draw everything and let the terminal wrap | `fitWidth: false` |
 
-### Q8: Rainbow Project Path
+If the user cancels any question, say "Configuration cancelled." and stop.
 
-- header: "Path Style"
-- question: "Render the project path as a rainbow gradient with background?"
-- options:
-  - "Solid color (default) — classic single-color path"
-  - "Rainbow + lavender bg — colorful path with subtle background"
-  - "Rainbow, no bg — colorful path without background"
+## Preview and confirm
 
-### Q9: Prompt Preview
+Compute the changed keys by comparing against the effective config.
 
-- header: "Prompt"
-- question: "Show the prompt you're currently waiting on, with its elapsed time? (❯ fix the auth redirect loop (42s))"
-- options:
-  - "No (default) — don't show the prompt line"
-  - "Yes — show the prompt and how long ago it was submitted"
+- If nothing changed, say "No changes needed - config unchanged." and stop.
+- Otherwise show each changed key as `key: old → new`, and a mock-up of the HUD with the new settings.
 
-### Q10: Narrow Terminals
+Then ask "Save these changes?"
 
-- header: "Width"
-- question: "How should the HUD behave when the terminal is too narrow for a full line?"
-- options:
-  - "Fit automatically (default) — drop the least important segments, then truncate"
-  - "Fit to a fixed width — same, but pin the column budget instead of detecting it"
-  - "Never truncate — always draw everything and let the terminal wrap"
+## Write
 
-If the user picks "Fit to a fixed width", ask for the column count and use it as
-`display.maxWidth`.
+Write the config file, creating directories as needed. Start from the existing file and change only the selected keys. Keep every other key exactly as it was, including settings this command doesn't ask about, such as `colors`, `display.maxAgents`, and `display.completedAgentFadeSec`. Write valid JSON with 2-space indentation.
 
-## Build Config from Answers
-
-Map the answers to config keys:
-
-| Q1 Selection | Config keys |
-|-------------|------------|
-| Full | `display.showSessionName: true, showSessionDuration: true, showTokenBreakdown: true, showOutputSpeed: true, showLinesChanged: true, showEffort: true, showLastCall: true, showCacheBreakdown: true` |
-| Standard | `display.showSessionName: true, showSessionDuration: true, showTokenBreakdown: true, showOutputSpeed: true, showLinesChanged: true, showEffort: true, showLastCall: false, showCacheBreakdown: false` |
-| Minimal | `display.showSessionName: false, showSessionDuration: false, showTokenBreakdown: false, showOutputSpeed: false, showLinesChanged: false, showEffort: false, showLastCall: false, showCacheBreakdown: false` |
-
-| Q2 Selection | Config key |
-|-------------|------------|
-| Yes | `display.showTools: true` |
-| No | `display.showTools: false` |
-
-| Q2b Selection | Config key |
-|-------------|------------|
-| Yes | `display.showAgents: true` |
-| No | `display.showAgents: false` |
-
-| Q2c Selection | Config key |
-|-------------|------------|
-| 3 | `display.maxAgents: 3` |
-| 5 | `display.maxAgents: 5` |
-| 8 | `display.maxAgents: 8` |
-| 10 | `display.maxAgents: 10` |
-
-| Q3 Selection | Config keys |
-|-------------|------------|
-| Branch + dirty | `gitStatus: { enabled: true, showDirty: true, showAheadBehind: false }` |
-| Branch + dirty + ahead/behind | `gitStatus: { enabled: true, showDirty: true, showAheadBehind: true }` |
-| Branch only | `gitStatus: { enabled: true, showDirty: false, showAheadBehind: false }` |
-| Disabled | `gitStatus: { enabled: false, showDirty: false, showAheadBehind: false }` |
-
-| Q4 Selection | Config key |
-|-------------|------------|
-| 1 level | `pathLevels: 1, display.showProjectName: true` |
-| 2 levels | `pathLevels: 2, display.showProjectName: true` |
-| 3 levels | `pathLevels: 3, display.showProjectName: true` |
-| 0 levels | `pathLevels: 0, display.showProjectName: true` |
-| Hide | `display.showProjectName: false` |
-
-| Q5 Selection | Config key |
-|-------------|------------|
-| Yes | `display.showLinesChanged: true` |
-| No | `display.showLinesChanged: false` |
-
-| Q6 Selection | Config key |
-|-------------|------------|
-| Yes | `display.showEffort: true` |
-| No | `display.showEffort: false` |
-
-| Q7 Selection | Config keys |
-|-------------|------------|
-| Full | `display.showQuota: true, showQuotaCounts: true, showQuotaReset: true` |
-| Bar + counts | `display.showQuota: true, showQuotaCounts: true, showQuotaReset: false` |
-| Compact | `display.showQuota: true, showQuotaCounts: false, showQuotaReset: false` |
-| Hidden | `display.showQuota: false` |
-
-| Q8 Selection | Config keys |
-|-------------|------------|
-| Solid color | `display.rainbowPath: false` |
-| Rainbow + lavender bg | `display.rainbowPath: true, colors.rainbowPathBg: "189"` |
-| Rainbow, no bg | `display.rainbowPath: true, colors.rainbowPathBg: "none"` |
-
-| Q9 Selection | Config key |
-|-------------|------------|
-| No | `display.showPromptPreview: false` |
-| Yes | `display.showPromptPreview: true` |
-
-| Q10 Selection | Config keys |
-|-------------|------------|
-| Fit automatically | `display.fitWidth: true, display.maxWidth: 0` |
-| Fit to a fixed width | `display.fitWidth: true, display.maxWidth: <columns the user gave>` |
-| Never truncate | `display.fitWidth: false` |
-
-
-## Write Config
-
-Write to `$COPILOT_HOME/plugins/copilot-hud/config.json`. Create the parent directory if needed.
-Merge with any existing config, preserving `colors` if present.
-
-## After Writing
-
-Show a preview of what the HUD will look like based on their choices, then say:
-> Configuration saved! The HUD will reflect your changes on the next render.
+Then say: "Configuration saved! The HUD picks it up on its next refresh." Mention that `docs/CONFIGURATION.md` documents every other option, and that they can also just ask — for example "hide the tool activity line" or "show two path levels".

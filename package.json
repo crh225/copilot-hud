@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "npm run build && node dist/index.js"
+    "test": "npm run build && node --test tests/*.test.mjs"
   },
   "keywords": [
     "copilot-cli",

@@ -10,6 +10,7 @@ const DEFAULTS = {
         enabled: true,
         showDirty: true,
         showAheadBehind: true,
+        showFileStats: false,
     },
     display: {
         showTools: true,
@@ -31,6 +32,7 @@ const DEFAULTS = {
         showQuota: true,
         showQuotaCounts: true,
         showQuotaReset: true,
+        showQuotaPace: false,
         fitWidth: true,
         maxWidth: 0,
     },

@@ -1,102 +1,78 @@
 ---
 description: Set up Copilot HUD as a native status line inside Copilot CLI
-allowed-tools: Bash, Read, Edit
+allowed-tools: Bash, Read
 ---
 
-# Copilot HUD Setup
+Set up copilot-hud as the Copilot CLI status line. A helper script does all the file changes; don't edit Copilot's settings by hand. Placeholders in `{BRACES}` are values you fill in from earlier steps.
 
-This command automatically configures copilot-hud to display a native status line inside Copilot CLI. No manual steps required.
+## Step 1: Find the runtime and the helper
 
-## Step 1: Detect Plugin and Runtime
+Node.js is the only requirement — it renders the status line and runs the hooks.
 
-Find the installed plugin and Node.js:
+| Shell | Commands |
+|---|---|
+| bash / zsh (macOS, Linux, WSL, Git Bash) | `command -v node` and `find "${COPILOT_HOME:-$HOME/.copilot}/installed-plugins" -name setup.mjs -path "*copilot-hud*" 2>/dev/null \| head -1` |
+| PowerShell | `(Get-Command node -ErrorAction SilentlyContinue).Source` and `(Get-ChildItem -Recurse -Filter setup.mjs (Join-Path $(if ($env:COPILOT_HOME) { $env:COPILOT_HOME } else { "$HOME\.copilot" }) 'installed-plugins') \| Where-Object FullName -like '*copilot-hud*' \| Select-Object -First 1).FullName` |
 
-```bash
-COPILOT_HOME="${COPILOT_HOME:-$HOME/.copilot}"
-PLUGIN_DIR=$(find "$COPILOT_HOME/installed-plugins" -name "index.js" -path "*/copilot-hud/dist/*" 2>/dev/null | head -1)
-if [ -n "$PLUGIN_DIR" ]; then echo "Plugin: OK ($PLUGIN_DIR)"; else echo "Plugin: NOT FOUND"; fi
-echo "Node: $(command -v node 2>/dev/null || echo 'NOT FOUND')"
-```
+The results are `{NODE}` and `{SETUP}`.
 
-If the plugin is not found, tell the user to run `copilot plugin marketplace add griches/copilot-hud` followed by `copilot plugin install copilot-hud@copilot-hud` first. Do not suggest `copilot plugin install griches/copilot-hud` — direct installs are deprecated by Copilot CLI and emit a warning.
-If Node.js is not found, tell the user to install it from https://nodejs.org/. Node is the only external requirement — it renders the statusline and runs the hooks. (Earlier versions also needed `jq`; they don't any more.)
+- No Node: stop. Point the user to Node.js LTS from https://nodejs.org (`winget install OpenJS.NodeJS.LTS` on Windows), then ask them to restart their shell and run `/copilot-hud:setup` again.
+- No helper: the plugin isn't installed. Tell the user to run `copilot plugin marketplace add griches/copilot-hud` and then `copilot plugin install copilot-hud@copilot-hud`. Do not suggest `copilot plugin install griches/copilot-hud` — direct installs are deprecated by Copilot CLI and emit a warning.
 
-## Step 2: Create Wrapper Script
-
-Create the wrapper script that Copilot's statusLine will execute. This script pipes stdin (session JSON) to the HUD renderer:
+## Step 2: Inspect the current settings
 
 ```bash
-COPILOT_HOME="${COPILOT_HOME:-$HOME/.copilot}"
-PLUGIN_JS=$(find "$COPILOT_HOME/installed-plugins" -name "index.js" -path "*/copilot-hud/dist/*" 2>/dev/null | head -1)
-cat > "$COPILOT_HOME/copilot-hud.sh" << SCRIPT
-#!/bin/bash
-cat | node "$PLUGIN_JS"
-SCRIPT
-chmod +x "$COPILOT_HOME/copilot-hud.sh"
-echo "Wrapper script created at $COPILOT_HOME/copilot-hud.sh"
+"{NODE}" "{SETUP}" inspect
 ```
 
-## Step 3: Install the Session Extension (Quota Bar)
+In PowerShell, prefix the command with `&`. This changes nothing. It prints JSON with:
 
-The quota bar needs data the statusline cannot reach. Copilot pipes a fixed JSON
-payload to the statusline that carries no entitlement fields, and the on-disk
-event log doesn't have them either — the `assistant.usage` event that carries
-quota is marked `ephemeral: true`, so it never persists. The only way to see it
-is to attach to the live session, which is what this extension does.
+- `settingsPath`: the file `statusLine` goes in
+- `command`: the statusLine command it will install
+- `existing`: `none`, `copilot-hud`, or `other`, for the current statusLine
+- `existingPreview`: a redacted preview of the current command
+- `plugin`: the installed copilot-hud the status line will run, or `null`
 
-The CLI discovers extensions only in `<copilot home>/extensions` and
-`<git root>/.github/extensions`, so it cannot be loaded from the plugin
-directory and must be copied into place:
+If it fails (for example, the settings file is not valid JSON), show the error and stop.
+
+If `existing` is `other`, ask the user:
+
+- question: "You already have a status line: `{existingPreview}`. Replace it with copilot-hud? Your settings are backed up first."
+- options: "Replace it" / "Keep my current status line"
+
+On "Keep", stop without changing anything. Only ever show `existingPreview`, never the raw command, because it may contain secrets.
+
+## Step 3: Install
 
 ```bash
-COPILOT_HOME="${COPILOT_HOME:-$HOME/.copilot}"
-EXT_SRC=$(find "$COPILOT_HOME/installed-plugins" -name "extension.mjs" -path "*/copilot-hud/extension/*" 2>/dev/null | head -1)
-mkdir -p "$COPILOT_HOME/extensions/copilot-hud"
-cp "$EXT_SRC" "$COPILOT_HOME/extensions/copilot-hud/extension.mjs"
-echo "Extension installed at $COPILOT_HOME/extensions/copilot-hud/extension.mjs"
+"{NODE}" "{SETUP}" install
 ```
 
-Extensions load by default (`extensions.mode` defaults to `load_and_augment`),
-so no further configuration is needed. This step is optional — without it the
-HUD renders exactly as before, just with no quota bar.
+This does the following:
 
-Tell the user explicitly that the quota bar will not appear straight away. Two
-things must happen first:
+- Copies a launcher to `<copilot home>/plugins/copilot-hud/statusline.mjs`. The launcher finds the installed copilot-hud each time it runs, so reinstalling the plugin or moving it to another marketplace never needs setup again.
+- Writes the wrapper Copilot executes: `copilot-hud.sh` in the Copilot home (`copilot-hud.cmd` on Windows).
+- Installs the quota-bar session extension to `<copilot home>/extensions/copilot-hud/extension.mjs`. Add `--no-extension` to skip it; the HUD then renders without a quota bar.
+- Backs up the settings file to the reported `backupPath`, and saves a replaced command to `previousCommandPath`.
+- Writes `statusLine` and `"experimental": true`, and keeps every other setting. A `refreshInterval` or `padding` the user added to the statusLine is kept.
 
-1. **Restart Copilot** — extensions are discovered and launched at startup, so
-   the one just installed is not running in the current session.
-2. **Send a prompt and wait for the response** — quota rides on the
-   `assistant.usage` event, which only fires once a model call completes.
+Running it again is safe: when nothing needs changing it reports `settingsChanged: false` and writes no backup.
 
-Until both have happened there is no quota data to draw. This is expected and
-not a sign of a failed install.
-
-## Step 4: Configure statusLine
-
-Read the existing Copilot config and merge in the statusLine and experimental settings:
+Test the result with sample input:
 
 ```bash
-COPILOT_HOME="${COPILOT_HOME:-$HOME/.copilot}"
-cat "$COPILOT_HOME/config.json" 2>/dev/null || echo "{}"
+echo '{"cwd":"'"$(pwd)"'","model":{"display_name":"claude-sonnet-4.6 (1x) (medium)"},"context_window":{"context_window_size":200000,"remaining_tokens":130000,"used_percentage":35,"total_input_tokens":24100,"total_output_tokens":8420},"cost":{"total_duration_ms":300000,"total_api_duration_ms":45000,"total_lines_added":42,"total_lines_removed":5},"ai_used":{"total_nano_aiu":1420000000,"formatted":"1.42"}}' | {COMMAND}
 ```
 
-Using the Edit tool, add or update these keys in `$COPILOT_HOME/config.json`:
-- `"experimental": true`
-- `"statusLine": { "type": "command", "command": "~/.copilot/copilot-hud.sh" }`
+`{COMMAND}` is the `command` from the report. In PowerShell: `'<json>' | & "{wrapperPath}"`.
 
-Do NOT overwrite other existing keys (like `installed_plugins`, `trusted_folders`, `banner`, etc). Merge carefully.
+It should print at least two HUD lines within a few seconds. If it errors or prints nothing:
 
-## Step 5: Verify
+1. Show the output.
+2. If `backupPath` was reported, restore it by copying it over `settingsPath`.
+3. Stop.
 
-Test the wrapper script produces output:
-
-```bash
-echo '{"cwd":"'$(pwd)'","model":{"display_name":"claude-sonnet-4.6 (1x) (medium)"},"context_window":{"context_window_size":200000,"remaining_tokens":130000,"used_percentage":35,"total_input_tokens":24100,"total_output_tokens":8420},"cost":{"total_duration_ms":300000,"total_api_duration_ms":45000,"total_lines_added":42,"total_lines_removed":5},"ai_used":{"total_nano_aiu":1420000000,"formatted":"1.42"}}' | ~/.copilot/copilot-hud.sh 2>&1
-```
-
-If output appears, setup is complete.
-
-## Step 5: Done
+## Step 4: Finish
 
 Tell the user:
 
@@ -105,6 +81,20 @@ Tell the user:
 > copilot --experimental
 > ```
 > To customize what the HUD shows, run `/copilot-hud:configure`.
->
-> **Note:** The `statusLine` feature requires the `--experimental` flag as of Copilot CLI v1.0.12.
-> You can also add `"experimental": true` to `~/.copilot/config.json` to enable it permanently.
+
+Then add whichever of these apply:
+
+- `"experimental": true` is now in their settings, so the flag is only needed for this first restart. (`statusLine` is an experimental Copilot CLI feature as of v1.0.12.)
+- If `extensionChanged` is `true`: **the quota bar will not appear straight away.** Extensions are launched at startup, so it needs the restart, and then one prompt with a completed response — quota arrives on the `assistant.usage` event, which only fires once a model call finishes. This is expected and not a sign of a failed install.
+- Countdowns and durations (the prompt timer, running agents) only move when Copilot re-runs the status line. On Copilot CLI v1.0.76+ they can tick while idle: add `"refreshInterval": 5` (seconds) to `statusLine` in `settingsPath`. Offer this; don't do it unasked.
+
+## If the HUD doesn't appear
+
+Check these in order:
+
+1. Run the Step 3 test again and show its output.
+2. If there's no output, run `inspect` again. `"plugin": null` means the launcher can't find copilot-hud under `<copilot home>/installed-plugins` — reinstall it with `copilot plugin install copilot-hud@copilot-hud`.
+3. Check that `COPILOT_HUD_DISABLE` isn't set in the shell that starts Copilot.
+4. Check that Copilot was started with `--experimental`, or that `"experimental": true` is in `settingsPath`.
+5. If Node moved (nvm, mise, and asdf upgrades change the path) the wrapper falls back to `node` on `PATH`; run setup again to pin the new one.
+6. To go back to the previous status line, copy `backupPath` over `settingsPath`.

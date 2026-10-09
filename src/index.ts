@@ -17,7 +17,15 @@ function readStdin(): Promise<string> {
   });
 }
 
+/** `COPILOT_HUD_DISABLE=1 copilot` blanks the HUD for one session, settings untouched. */
+function isDisabled(): boolean {
+  const value = process.env.COPILOT_HUD_DISABLE?.trim().toLowerCase();
+  return Boolean(value) && !['0', 'false', 'off', 'no'].includes(value as string);
+}
+
 export async function main(): Promise<void> {
+  if (isDisabled()) return;
+
   try {
     const stdinData = await readStdin();
     let stdinJson: Record<string, unknown> = {};

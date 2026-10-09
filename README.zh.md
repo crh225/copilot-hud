@@ -43,7 +43,9 @@
    /copilot-hud:setup
    ```
 
-   安装向导会自动创建 wrapper 脚本、配置状态栏并启用实验性功能。重启 Copilot 后 HUD 将显示在界面底部。
+   安装向导会将 Copilot 的状态栏指向 HUD、安装配额进度条扩展并启用实验性功能。重启 Copilot 后 HUD 将显示在界面底部。
+
+   安装向导可以放心重复运行，但通常无需这样做：它会安装一个小型启动器，每次状态栏运行时都会自动找到已安装的插件，因此更新、重装插件或将其迁移到另一个 marketplace 后依然可用。修改 Copilot 设置前会先备份；如果你已有其他状态栏，会先征求你的同意再替换。
 
 3. （可选）自定义显示内容：
    ```
@@ -51,7 +53,43 @@
    ```
    可选择是否显示会话名称、时长、Token 明细、输出速度、工具活动和 Git 风格。
 
-> **注意：** Copilot CLI v1.0.12 的 `statusLine` 功能需要 `--experimental` 标志。安装向导会自动将该标志写入配置文件。
+> **注意：** Copilot CLI v1.0.12 的 `statusLine` 功能需要 `--experimental` 标志。安装向导会将 `"experimental": true` 写入 Copilot 设置，之后无需再加该标志。
+
+<details>
+<summary><strong>安装向导改动了什么，以及如何手动安装</strong></summary>
+
+安装向导会运行已安装插件中的 `node scripts/setup.mjs install`，并在 Copilot 主目录（`~/.copilot` 或 `$COPILOT_HOME`）下写入：
+
+| 文件 | 说明 |
+|------|------|
+| `plugins/copilot-hud/statusline.mjs` | 启动器。查找已安装的 copilot-hud 并运行 |
+| `copilot-hud.sh`（Windows 上为 `copilot-hud.cmd`） | Copilot 实际执行的 wrapper。固定使用运行安装向导时的 Node，找不到时回退到 `PATH` 中的 `node` |
+| `extensions/copilot-hud/extension.mjs` | 配额进度条会话扩展（可用 `--no-extension` 跳过） |
+| `settings.json` | 新增 `statusLine` 和 `"experimental": true`，其余键保持不变。修改前会备份为 `settings.json.bak.<时间戳>` |
+
+在用户设置尚未迁移到 `settings.json` 的旧版 Copilot CLI 上，这些键会写入 `config.json`；安装向导会自动判断你的 CLI 读取哪个文件。
+
+`node scripts/setup.mjs inspect` 只输出将要执行的操作，不做任何改动。
+
+</details>
+
+### 空闲时刷新
+
+Copilot 只在会话中有事件发生时才重新运行状态栏，因此等待期间提示计时和代理运行时长不会走动。在 Copilot CLI v1.0.76+ 上，可以在 `~/.copilot/settings.json` 的 `statusLine` 中加入 `refreshInterval`（秒）让它们持续更新：
+
+```json
+"statusLine": { "type": "command", "command": "~/.copilot/copilot-hud.sh", "refreshInterval": 5 }
+```
+
+安装向导会保留你在这里添加的 `refreshInterval` 和 `padding`。
+
+### 临时关闭
+
+```bash
+COPILOT_HUD_DISABLE=1 copilot
+```
+
+除 `0`、`false`、`off`、`no` 以外的任意值都会在该会话中隐藏 HUD，且不改动你的设置。
 
 ### 从源码安装
 
@@ -158,6 +196,19 @@ JSON 载荷中不包含任何配额字段，磁盘上的事件日志同样没有
 未安装扩展时，HUD 的渲染结果与之前完全一致，只是没有配额进度条。可通过
 `/copilot-hud:configure` 或 `display.showQuota*` 配置项进行调整。
 
+**用量节奏。** 单看百分比无法判断是否有问题——第 20 天用到 40% 很从容，第 5 天
+用到 40% 就值得注意。开启 `display.showQuotaPace` 后，进度条会按当前用量推算到
+重置日，并用 `▲` 标记：预计月末达到 90% 及以上时为琥珀色，预计提前耗尽时为红色。
+
+```
+Quota ████░░░░░░ 3000/7500 40% ▲ · 25d
+```
+
+用量低于 10% 时不会标记。
+
+已安装的扩展文件是一份副本（Copilot 只从自己的扩展目录加载扩展）。每次会话启动时
+会将它与插件中的版本比较，插件更新后自动替换；新副本在下次启动 Copilot 时生效。
+
 ### 代码变更
 
 显示本次会话累计的新增和删除行数，以绿/红色着色。
@@ -237,8 +288,8 @@ JSON 载荷中不包含任何配额字段，磁盘上的事件日志同样没有
 ```
 Copilot CLI 会话
   │
-  ├─ statusLine（实验性）──→ copilot-hud.sh
-  │    通过 stdin 传入会话 JSON         │
+  ├─ statusLine（实验性）──→ copilot-hud.sh ──→ statusline.mjs
+  │    通过 stdin 传入会话 JSON         （查找已安装的插件）
   │    （model、context_window、cost）  ▼
   │                               node dist/index.js
   │                                     │
@@ -266,7 +317,8 @@ Copilot CLI 会话
   "gitStatus": {
     "enabled": true,
     "showDirty": true,
-    "showAheadBehind": true
+    "showAheadBehind": true,
+    "showFileStats": false
   },
   "display": {
     "showTools": true,
@@ -287,6 +339,7 @@ Copilot CLI 会话
     "showQuota": true,
     "showQuotaCounts": true,
     "showQuotaReset": true,
+    "showQuotaPace": false,
     "fitWidth": true,
     "maxWidth": 0
   },
@@ -306,6 +359,7 @@ Copilot CLI 会话
 | `gitStatus.enabled` | `true` | 是否显示 Git 分支 |
 | `gitStatus.showDirty` | `true` | 有未提交改动时显示 `*` |
 | `gitStatus.showAheadBehind` | `true` | 显示 `↑N ↓N` 超前/落后提交数 |
+| `gitStatus.showFileStats` | `false` | 显示变更文件计数：`!3 +1 ✘2 ?4` 分别表示已修改、新增、删除、未跟踪 |
 | `display.showTools` | `true` | 是否显示工具活动行 |
 | `display.showAgents` | `true` | 是否显示后台代理追踪 |
 | `display.maxAgents` | `5` | 显示代理的最大数量 |
@@ -323,6 +377,7 @@ Copilot CLI 会话
 | `display.showQuota` | `true` | 显示月度配额进度条（需要会话扩展） |
 | `display.showQuotaCounts` | `true` | 在配额百分比旁显示 `4785/7500` 计数 |
 | `display.showQuotaReset` | `true` | 显示距离配额重置的剩余天数 |
+| `display.showQuotaPace` | `false` | 当用量预计会在重置前耗尽时，用 `▲` 标记配额进度条（先琥珀色，后红色） |
 | `display.rainbowPath` | `false` | 项目路径逐字符彩虹渐变（`false` 时回退到 `colors.project` 纯色） |
 | `display.fitWidth` | `true` | 将每一行裁剪到终端宽度，丢弃低优先级片段而不是换行 |
 | `display.maxWidth` | `0` | `fitWidth` 使用的列宽预算。`0` 表示自动检测，正数表示固定宽度 |
@@ -342,13 +397,15 @@ Copilot CLI 会话
 # 1. 卸载插件
 copilot plugin uninstall copilot-hud
 
-# 2. 删除 wrapper 脚本
+# 2. 删除 wrapper 脚本和配额扩展
 rm ~/.copilot/copilot-hud.sh
+rm -rf ~/.copilot/extensions/copilot-hud
 
-# 3. 从 ~/.copilot/config.json 删除 statusLine 配置
-#    如不再需要，删除 "statusLine" 和 "experimental" 键
+# 3. 从 ~/.copilot/settings.json 删除 statusLine 配置
+#    如不再需要，删除 "statusLine" 和 "experimental" 键。
+#    （安装向导在同目录留有备份：settings.json.bak.<时间戳>）
 
-# 4. 删除插件配置（可选）
+# 4. 删除启动器和插件配置（可选）
 rm -rf ~/.copilot/plugins/copilot-hud
 ```
 

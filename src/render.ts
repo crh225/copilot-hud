@@ -3,7 +3,8 @@ import { colorize, dim, RESET, getContextColor, getUsageColor, renderBar, rainbo
 import { loadSessionEffort, summariseTools } from './state.js';
 import { loadConfiguredEffort } from './config.js';
 import { joinFit, truncateVisible, KEEP, type Segment } from './width.js';
-import type { RenderContext } from './types.js';
+import { sanitize } from './sanitize.js';
+import type { QuotaEntry, RenderContext } from './types.js';
 
 const TOOL_ICONS: Record<string, string> = {
   bash: '⌨',
@@ -120,7 +121,7 @@ function parseModelMeta(
 // Line 1: [Model 3x·high] │ project │ git:(branch*) │ session-name │ ⏱ 5m │ +42/-3
 export function renderProjectLine(ctx: RenderContext): string {
   const { session, gitStatus, config } = ctx;
-  const cwd = session.cwd ?? ctx.state.cwd ?? process.cwd();
+  const cwd = sanitize(session.cwd ?? ctx.state.cwd ?? process.cwd(), 1024);
   // Priorities are the drop order when the terminal is too narrow: the model
   // badge is pinned, and the further right a segment sits the sooner it goes.
   const parts: Segment[] = [];
@@ -138,7 +139,7 @@ export function renderProjectLine(ctx: RenderContext): string {
       ?? loadSessionEffort(session.session_id ?? ctx.state.sessionId)
       ?? loadConfiguredEffort(),
   );
-  let modelBadge = meta.shortName || 'Copilot';
+  let modelBadge = sanitize(meta.shortName, 80) || 'Copilot';
   if (config.display.showEffort) {
     if (meta.multiplier) modelBadge += ` ${meta.multiplier}`;
     if (meta.effort) modelBadge += `·${meta.effort}`;
@@ -164,13 +165,20 @@ export function renderProjectLine(ctx: RenderContext): string {
 
   // Git status
   if (config.gitStatus.enabled && gitStatus) {
-    let branchText = gitStatus.branch;
+    let branchText = sanitize(gitStatus.branch);
     if (config.gitStatus.showDirty && gitStatus.dirty) {
       branchText += '*';
     }
     if (config.gitStatus.showAheadBehind) {
       if (gitStatus.ahead > 0) branchText += ` ↑${gitStatus.ahead}`;
       if (gitStatus.behind > 0) branchText += ` ↓${gitStatus.behind}`;
+    }
+    if (config.gitStatus.showFileStats && gitStatus.fileStats) {
+      const { modified, added, deleted, untracked } = gitStatus.fileStats;
+      if (modified > 0) branchText += ` !${modified}`;
+      if (added > 0) branchText += ` +${added}`;
+      if (deleted > 0) branchText += ` ✘${deleted}`;
+      if (untracked > 0) branchText += ` ?${untracked}`;
     }
     parts.push({
       text: `${colorize('git:(', config.colors.git)}${colorize(branchText, config.colors.gitBranch)}${colorize(')', config.colors.git)}`,
@@ -179,8 +187,11 @@ export function renderProjectLine(ctx: RenderContext): string {
   }
 
   // Session name
-  if (config.display.showSessionName && session.session_name) {
-    parts.push({ text: dim(session.session_name), priority: 5 });
+  const sessionName = config.display.showSessionName && session.session_name
+    ? sanitize(session.session_name)
+    : '';
+  if (sessionName) {
+    parts.push({ text: dim(sessionName), priority: 5 });
   }
 
   // Session duration
@@ -214,6 +225,31 @@ function daysUntil(resetDate: string | undefined, now: number): number | null {
 }
 
 /**
+ * Is this bucket being spent faster than the month allows? Projects the usage
+ * so far linearly to the reset date.
+ *
+ * Entitlements reset monthly, so the window is taken to have opened one
+ * calendar month before `resetDate`. Returns null when there is nothing worth
+ * flagging: under 10% used a projection is mostly noise, and in the first hours
+ * of a window any usage at all projects to exhaustion.
+ */
+function quotaPace(q: QuotaEntry, now: number): 'warning' | 'critical' | null {
+  if (!q.resetDate || q.usedPercentage < 10) return null;
+  const reset = Date.parse(q.resetDate);
+  if (Number.isNaN(reset) || reset <= now) return null;
+
+  const opened = new Date(reset);
+  opened.setUTCMonth(opened.getUTCMonth() - 1);
+  const elapsed = (now - opened.getTime()) / (reset - opened.getTime());
+  if (elapsed < 0.02) return null;
+
+  const projected = q.usedPercentage / Math.min(1, elapsed);
+  if (projected >= 100) return 'critical';
+  if (projected >= 90) return 'warning';
+  return null;
+}
+
+/**
  * Render the metered entitlement bucket as a bar. Returns null when quota is
  * unavailable — no extension installed, or every bucket is unlimited — so the
  * statusline degrades to exactly its current output.
@@ -232,8 +268,13 @@ function renderQuota(ctx: RenderContext): string | null {
   if (!q) return null;
 
   const pct = Math.round(q.usedPercentage);
-  const color = getUsageColor(pct);
-  const segments = [`${dim('Quota')} ${renderBar(pct, 10, getUsageColor)}`];
+  // Pace overrides the level colors: 40% used is calm on day 20 and a problem
+  // on day 5, and the level alone can't tell those apart.
+  const pace = config.display.showQuotaPace ? quotaPace(q, now) : null;
+  const paceColor = pace === 'critical' ? 'red' : pace === 'warning' ? 'yellow' : null;
+  const colorFn = paceColor ? () => paceColor : getUsageColor;
+  const color = colorFn(pct);
+  const segments = [`${dim('Quota')} ${renderBar(pct, 10, colorFn)}`];
 
   if (config.display.showQuotaCounts) {
     // Raw counts, not formatTokens — these are request counts, and `4785/7500`
@@ -241,7 +282,7 @@ function renderQuota(ctx: RenderContext): string | null {
     segments.push(colorize(`${q.used}/${q.entitlement}`, color));
   }
 
-  segments.push(colorize(`${pct}%`, color));
+  segments.push(colorize(pace ? `${pct}% ▲` : `${pct}%`, color));
 
   // The percentage alone isn't actionable — 64% is alarming on day 3 and fine
   // on day 28 — so carry the reset horizon next to it.
@@ -373,7 +414,8 @@ export function renderPromptLine(ctx: RenderContext): string | null {
   if (!config.display.showPromptPreview) return null;
   if (!stateMatchesSession(ctx)) return null;
 
-  const prompt = state.lastPrompt?.replace(/\s+/g, ' ').trim();
+  // Bounded well past any terminal width; the real cut is truncateVisible below.
+  const prompt = state.lastPrompt ? sanitize(state.lastPrompt, 500) : '';
   if (!prompt) return null;
 
   let line = `${RESET}${colorize('❯', 'cyan')} ${dim(prompt)}`;
@@ -404,16 +446,19 @@ export function renderToolsLine(ctx: RenderContext): string | null {
   const summary = summariseTools(recentTools);
   const segments: Segment[] = [];
 
-  for (const [toolName, info] of summary.entries()) {
+  for (const [rawName, info] of summary.entries()) {
+    const toolName = sanitize(rawName, 40);
+    if (!toolName) continue;
     const icon = getToolIcon(toolName);
     const sIcon = statusIcon(info.lastStatus);
     const colorName = statusColor(info.lastStatus);
 
     let part = colorize(`${sIcon} ${icon} ${toolName.charAt(0).toUpperCase() + toolName.slice(1)}`, colorName);
 
-    if (info.lastTarget) {
-      const isPath = info.lastTarget.startsWith('/') || info.lastTarget.startsWith('.');
-      const shortTarget = isPath ? basename(info.lastTarget) : info.lastTarget.slice(0, 30);
+    const target = info.lastTarget ? sanitize(info.lastTarget) : '';
+    if (target) {
+      const isPath = target.startsWith('/') || target.startsWith('.');
+      const shortTarget = isPath ? basename(target) : target.slice(0, 30);
       part += dim(`: ${shortTarget}`);
     }
     if (info.count > 1) {
@@ -471,10 +516,10 @@ export function renderAgentLines(ctx: RenderContext): string[] {
     const sIcon = agent.status === 'running' ? '◐' : agent.status === 'success' ? '✓' : '✗';
     const color = agent.status === 'running' ? 'yellow' : agent.status === 'success' ? 'green' : 'red';
 
-    const typeLabel = agent.subagentType ? agent.subagentType.toLowerCase() : 'agent';
+    const typeLabel = (agent.subagentType && sanitize(agent.subagentType, 40).toLowerCase()) || 'agent';
     const duration = formatAgentDuration(agent.startTime, agent.endTime, ctx.now);
 
-    let line = `${RESET}${colorize(sIcon, color)} ${colorize(`[${typeLabel}]`, 'cyan')} ${agent.description}`;
+    let line = `${RESET}${colorize(sIcon, color)} ${colorize(`[${typeLabel}]`, 'cyan')} ${sanitize(String(agent.description ?? ''))}`;
     if (agent.status === 'running') {
       line += dim(` (${duration}…)`);
     } else {

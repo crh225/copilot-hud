@@ -27,11 +27,14 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const COPILOT_HOME = process.env.COPILOT_HOME ?? join(homedir(), '.copilot');
 const STATE_FILE = join(COPILOT_HOME, 'hud-state.json');
 const LOCK_DIR = `${STATE_FILE}.lock`;
+const EXTENSION_SOURCE = join(dirname(fileURLToPath(import.meta.url)), '..', 'extension', 'extension.mjs');
+const EXTENSION_INSTALLED = join(COPILOT_HOME, 'extensions', 'copilot-hud', 'extension.mjs');
 
 const MAX_RECENT_TOOLS = 8;
 const LOCK_RETRIES = 40;
@@ -159,7 +162,32 @@ function parseToolArgs(payload) {
 // ---------------------------------------------------------------------------
 // hooks
 
+/**
+ * Keep the installed session extension in step with the plugin.
+ *
+ * Copilot only loads extensions from its own extensions directory, so setup
+ * has to *copy* ours there — and a copy goes stale the moment the plugin
+ * updates. This hook always runs from the current plugin, so it can notice and
+ * replace it. Only an extension setup already installed is touched: its
+ * absence means the user opted out of the quota bar. Extensions load at
+ * startup, so the new copy takes effect on the next launch.
+ */
+function refreshExtension() {
+  try {
+    if (!existsSync(EXTENSION_INSTALLED)) return;
+    const current = readFileSync(EXTENSION_SOURCE);
+    if (readFileSync(EXTENSION_INSTALLED).equals(current)) return;
+    const tmp = `${EXTENSION_INSTALLED}.${process.pid}.tmp`;
+    writeFileSync(tmp, current);
+    renameSync(tmp, EXTENSION_INSTALLED);
+  } catch {
+    // The old extension keeps working; the quota bar just misses an update.
+  }
+}
+
 function sessionStart(payload) {
+  refreshExtension();
+
   const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : '';
 
   // Resuming the same session keeps its agents; a different session starts clean.
