@@ -210,6 +210,23 @@ test('the launcher follows the plugin when it moves marketplaces', posixOnly, (t
   assert.equal(run(), 'hud 1.1.0\n');
 });
 
+test('the launcher resolves a live local marketplace plugin', posixOnly, (t) => {
+  const home = makeHome(t);
+  const plugin = path.join(home, 'local-copilot-hud');
+  fs.mkdirSync(path.join(plugin, 'dist'), { recursive: true });
+  fs.writeFileSync(path.join(plugin, 'package.json'), JSON.stringify({ name: 'copilot-hud', type: 'module', version: '1.2.3' }));
+  fs.writeFileSync(path.join(plugin, 'dist', 'index.js'), 'export async function main() { console.log("local hud"); }\n');
+  fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({
+    extraKnownMarketplaces: {
+      local: { source: { source: 'directory', path: plugin } },
+    },
+  }));
+  const { report } = setup(home, 'install');
+  assert.deepEqual(report.plugin, { version: '1.2.3', path: plugin });
+  const out = execFileSync(report.wrapperPath, { env: { ...process.env, COPILOT_HOME: home }, input: '{}', encoding: 'utf8' });
+  assert.equal(out, 'local hud\n');
+});
+
 test('the launcher prints nothing when no plugin is installed', posixOnly, (t) => {
   const home = makeHome(t);
   const { report } = setup(home, 'install');

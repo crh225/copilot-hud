@@ -64,6 +64,18 @@ export function resolveHud(home = copilotHome()) {
     // No registry, or one we can't read — the install tree below still works.
   }
 
+  try {
+    const { value } = parseCopilotJson(fs.readFileSync(path.join(home, 'settings.json'), 'utf8'));
+    for (const marketplace of Object.values(value.extraKnownMarketplaces ?? {})) {
+      const source = marketplace?.source;
+      if (source?.source === 'directory' && typeof source.path === 'string') {
+        dirs.push(source.path);
+      }
+    }
+  } catch {
+    // Local marketplaces are optional; installed plugins above still work.
+  }
+
   // installed-plugins/<marketplace>/copilot-hud, or installed-plugins/_direct/<name>
   const root = path.join(home, 'installed-plugins');
   for (const source of list(root)) {
