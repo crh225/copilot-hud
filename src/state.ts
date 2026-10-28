@@ -1,11 +1,13 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { HudState, QuotaState, ToolEntry, AgentEntry } from './types.js';
+import { DatabaseSync } from 'node:sqlite';
+import type { HudState, MonthlyUsageState, QuotaState, ToolEntry, AgentEntry } from './types.js';
 
 const COPILOT_HOME = process.env.COPILOT_HOME ?? join(homedir(), '.copilot');
 export const STATE_FILE = join(COPILOT_HOME, 'hud-state.json');
 export const QUOTA_FILE = join(COPILOT_HOME, 'hud-quota.json');
+export const USAGE_DB_FILE = join(COPILOT_HOME, 'hud-usage.sqlite');
 export const MAX_RECENT_TOOLS = 8;
 
 /**
@@ -29,6 +31,36 @@ export function readQuota(): QuotaState | null {
     return parsed;
   } catch {
     return null;
+  }
+}
+
+export function readMonthlyUsage(): MonthlyUsageState | null {
+  if (!existsSync(USAGE_DB_FILE)) {
+    return null;
+  }
+
+  let db: DatabaseSync | undefined;
+  try {
+    db = new DatabaseSync(USAGE_DB_FILE, { readOnly: true });
+    const month = new Date().toISOString().slice(0, 7);
+    const row = db.prepare(
+      'SELECT total_nano_aiu, updated_at FROM monthly_usage WHERE month = ?',
+    ).get(month) as { total_nano_aiu?: number; updated_at?: number } | undefined;
+    const totalNanoAiu = row?.total_nano_aiu;
+    const updatedAt = row?.updated_at;
+    if (
+      typeof totalNanoAiu !== 'number'
+      || typeof updatedAt !== 'number'
+      || !Number.isSafeInteger(totalNanoAiu)
+      || !Number.isSafeInteger(updatedAt)
+    ) {
+      return null;
+    }
+    return { month, totalNanoAiu, updatedAt };
+  } catch {
+    return null;
+  } finally {
+    db?.close();
   }
 }
 

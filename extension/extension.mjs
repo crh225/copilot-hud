@@ -18,9 +18,11 @@ import { joinSession } from '@github/copilot-sdk/extension';
 import { appendFileSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 const COPILOT_HOME = process.env.COPILOT_HOME ?? join(homedir(), '.copilot');
 const QUOTA_FILE = join(COPILOT_HOME, 'hud-quota.json');
+const USAGE_DB_FILE = join(COPILOT_HOME, 'hud-usage.sqlite');
 const PROBE_FILE = join(COPILOT_HOME, 'hud-probe.jsonl');
 const PROBE = process.env.COPILOT_HUD_PROBE === '1';
 
@@ -78,6 +80,74 @@ function writeQuota(snapshots) {
   }
 }
 
+function currentMonth() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+/**
+ * `totalNanoAiu` is cumulative for one session. Store the last observed total
+ * for each session and add only its increase to this calendar month's shared
+ * ledger, which lets every open HUD read the same aggregate.
+ */
+function recordUsage(sessionId, totalNanoAiu) {
+  if (
+    typeof sessionId !== 'string'
+    || !Number.isSafeInteger(totalNanoAiu)
+    || totalNanoAiu < 0
+  ) {
+    return;
+  }
+
+  let db;
+  try {
+    mkdirSync(COPILOT_HOME, { recursive: true });
+    db = new DatabaseSync(USAGE_DB_FILE);
+    db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 5000;
+      CREATE TABLE IF NOT EXISTS session_usage (
+        session_id TEXT PRIMARY KEY,
+        total_nano_aiu INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS monthly_usage (
+        month TEXT PRIMARY KEY,
+        total_nano_aiu INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const previous = db.prepare(
+        'SELECT total_nano_aiu FROM session_usage WHERE session_id = ?',
+      ).get(sessionId);
+      const delta = Math.max(0, totalNanoAiu - (previous?.total_nano_aiu ?? 0));
+      const month = currentMonth();
+
+      db.prepare(`
+        INSERT INTO monthly_usage (month, total_nano_aiu, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(month) DO UPDATE SET
+          total_nano_aiu = total_nano_aiu + excluded.total_nano_aiu,
+          updated_at = excluded.updated_at
+      `).run(month, delta, Date.now());
+      db.prepare(`
+        INSERT INTO session_usage (session_id, total_nano_aiu)
+        VALUES (?, ?)
+        ON CONFLICT(session_id) DO UPDATE SET total_nano_aiu = excluded.total_nano_aiu
+      `).run(sessionId, totalNanoAiu);
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  } catch {
+    // Tracking must never disrupt Copilot if the local ledger is unavailable.
+  } finally {
+    db?.close();
+  }
+}
+
 const session = await joinSession();
 
 probe('probe.start', { pid: process.pid, cwd: process.cwd() });
@@ -103,4 +173,6 @@ session.on('assistant.usage', (event) => {
   if (d.quotaSnapshots) {
     writeQuota(d.quotaSnapshots);
   }
+
+  recordUsage(session.sessionId, d.copilotUsage?.totalNanoAiu);
 });

@@ -302,6 +302,16 @@ function renderQuota(ctx: RenderContext): string | null {
 }
 
 // Line 2: Ctx ██░░░░░░░░ 40.0k/200.0k 20% │ Quota ██████░░░░ 4.8k/7.5k 64% · 19d │ Credits 1.42 │ in:1.5M out:12.2k cache:1.5M │ 42 tok/s
+function renderMonthlyUsage(ctx: RenderContext): string | null {
+  const usage = ctx.monthlyUsage;
+  if (!usage) return null;
+
+  const aiu = (usage.totalNanoAiu / 1_000_000_000).toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
+  return `${dim('Month')} ${colorize(aiu, 'brightBlue')} ${dim('AIU')}`;
+}
+
 export function renderContextLine(ctx: RenderContext): string | null {
   const { session, config } = ctx;
   const cw = session.context_window;
@@ -337,16 +347,21 @@ export function renderContextLine(ctx: RenderContext): string | null {
     parts.push({ text: quotaSegment, priority: 2 });
   }
 
+  const monthlyUsageSegment = renderMonthlyUsage(ctx);
+  if (monthlyUsageSegment) {
+    parts.push({ text: monthlyUsageSegment, priority: 3 });
+  }
+
   // Credits used this session (Copilot's usage-based billing, surfaced under
   // the top-level `ai_used` field — `formatted` is the display-ready AIU value,
   // e.g. "26.5" where 1 AIU = $0.01 USD). Falls back to the legacy
   // `cost.total_premium_requests` counter on older Copilot CLI builds.
   if (session.ai_used?.formatted !== undefined) {
-    parts.push({ text: `${dim('Credits')} ${colorize(session.ai_used.formatted, 'brightBlue')}`, priority: 3 });
+    parts.push({ text: `${dim('Credits')} ${colorize(session.ai_used.formatted, 'brightBlue')}`, priority: 4 });
   } else if (session.cost?.total_premium_requests !== undefined) {
     parts.push({
       text: `${dim('Reqs')} ${colorize(`${session.cost.total_premium_requests}`, 'brightBlue')}`,
-      priority: 3,
+      priority: 4,
     });
   }
 

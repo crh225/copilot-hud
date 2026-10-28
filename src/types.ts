@@ -41,6 +41,12 @@ export interface QuotaState {
   quotas: QuotaEntry[];
 }
 
+export interface MonthlyUsageState {
+  month: string;
+  totalNanoAiu: number;
+  updatedAt: number;
+}
+
 export interface HudState {
   sessionId?: string;
   sessionStart?: number;
@@ -129,6 +135,7 @@ export interface RenderContext {
   config: HudConfig;
   now: number;
   quota?: QuotaState | null;
+  monthlyUsage?: MonthlyUsageState | null;
   /**
    * Column budget for every rendered line. Undefined means "don't fit" — either
    * the user disabled it, or the terminal width could not be determined, in

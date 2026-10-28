@@ -20,7 +20,7 @@ English | [中文](README.zh.md)
 ### Prerequisites
 
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli) v1.0.12+ installed and authenticated
-- Node.js 18+
+- Node.js 22.5+ (uses the built-in SQLite module for shared monthly tracking)
 
 That's the whole list. `jq` used to be required as well, for the hook scripts
 that track tool and agent activity; those hooks are now plain Node, so there is
@@ -150,6 +150,7 @@ Ctx ████░░░░░░ 70.0k/200.0k 35% │ Quota ██████
 - **Ctx** — context bar with exact token usage `used/total percentage`
 - **Quota** (optional) — monthly entitlement bar: requests used, percentage consumed, and days until reset. Requires the [session extension](#quota-bar). Turns magenta past 75% and red past 90%, and appends `+N over` once the entitlement is exhausted.
 - **Credits** — AI units (AIU) consumed this session under Copilot's usage-based billing (1 AIU = $0.01 USD). Falls back to legacy premium request count (`Reqs`) on older CLI versions.
+- **Month** — AIU accumulated locally during the current calendar month across every open Copilot CLI window using this HUD installation. It begins tracking after installation and is not GitHub's official entitlement or remaining quota.
 - **in/out/cache** — cumulative input, output, and cache tokens
 - **tok/s** — output generation speed
 - **last call** (optional) — tokens used in the most recent API call

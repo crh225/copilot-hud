@@ -5,8 +5,9 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseStatus } from '../dist/git.js';
 import { sanitize } from '../dist/sanitize.js';
 
@@ -60,6 +61,30 @@ test('parseStatus: clean tree, no upstream', () => {
 
 test('parseStatus: a detached HEAD has no branch to show', () => {
   assert.equal(parseStatus('# branch.oid 1234\n# branch.head (detached)\n'), null);
+});
+
+test('monthly usage is shared through the SQLite ledger', (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'copilot-hud-test-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const db = new DatabaseSync(path.join(home, 'hud-usage.sqlite'));
+  db.exec('CREATE TABLE monthly_usage (month TEXT PRIMARY KEY, total_nano_aiu INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
+  const month = new Date().toISOString().slice(0, 7);
+  db.prepare('INSERT INTO monthly_usage VALUES (?, ?, ?)').run(month, 2_500_000_000, Date.now());
+  db.close();
+
+  const script = `
+    const { readMonthlyUsage } = await import(process.argv[1]);
+    console.log(JSON.stringify(readMonthlyUsage()));
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', script, pathToFileURL(path.join(ROOT, 'dist', 'state.js')).href], {
+    env: { ...process.env, COPILOT_HOME: home },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const usage = JSON.parse(result.stdout);
+  assert.equal(usage.month, month);
+  assert.equal(usage.totalNanoAiu, 2_500_000_000);
+  assert.ok(Number.isSafeInteger(usage.updatedAt));
 });
 
 test('session-start refreshes a stale installed extension, and only an installed one', (t) => {

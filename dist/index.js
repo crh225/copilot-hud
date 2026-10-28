@@ -1,4 +1,4 @@
-import { readState, readQuota } from './state.js';
+import { readState, readQuota, readMonthlyUsage } from './state.js';
 import { getGitStatus } from './git.js';
 import { loadConfig } from './config.js';
 import { render } from './render.js';
@@ -42,6 +42,7 @@ export async function main() {
             config,
             now: Date.now(),
             quota: config.display.showQuota ? readQuota() : null,
+            monthlyUsage: readMonthlyUsage(),
             width: config.display.fitWidth ? detectWidth(config.display.maxWidth) : undefined,
         };
         render(ctx);
